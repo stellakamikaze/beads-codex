@@ -1,5 +1,4 @@
 import { ISSUE_TYPES, typeLabel } from '../utils/issue-type.js';
-import { priority_levels } from '../utils/priority.js';
 
 /**
  * Create and manage the New Issue dialog (native <dialog>).
@@ -32,9 +31,6 @@ export function createNewIssueDialog(mount_element, sendFn, router, store) {
           <label for="new-type">Type</label>
           <select id="new-type" name="type" aria-label="Issue type"></select>
 
-          <label for="new-priority">Priority</label>
-          <select id="new-priority" name="priority" aria-label="Priority"></select>
-
           <label for="new-labels">Labels</label>
           <input id="new-labels" name="labels" type="text" placeholder="comma,separated" />
 
@@ -62,9 +58,6 @@ export function createNewIssueDialog(mount_element, sendFn, router, store) {
   );
   const sel_type = /** @type {HTMLSelectElement} */ (
     dialog.querySelector('#new-type')
-  );
-  const sel_priority = /** @type {HTMLSelectElement} */ (
-    dialog.querySelector('#new-priority')
   );
   const input_labels = /** @type {HTMLInputElement} */ (
     dialog.querySelector('#new-labels')
@@ -99,15 +92,6 @@ export function createNewIssueDialog(mount_element, sendFn, router, store) {
       o.textContent = typeLabel(t);
       sel_type.appendChild(o);
     }
-
-    sel_priority.replaceChildren();
-    for (let i = 0; i <= 4; i += 1) {
-      const o = document.createElement('option');
-      o.value = String(i);
-      const label = priority_levels[i] || 'Medium';
-      o.textContent = `${i} – ${label}`;
-      sel_priority.appendChild(o);
-    }
   }
   populateSelects();
 
@@ -129,7 +113,6 @@ export function createNewIssueDialog(mount_element, sendFn, router, store) {
   function setBusy(is_busy) {
     input_title.disabled = is_busy;
     sel_type.disabled = is_busy;
-    sel_priority.disabled = is_busy;
     input_labels.disabled = is_busy;
     input_description.disabled = is_busy;
     btn_cancel.disabled = is_busy;
@@ -156,26 +139,15 @@ export function createNewIssueDialog(mount_element, sendFn, router, store) {
       } else {
         sel_type.value = '';
       }
-      const p = window.localStorage.getItem('beads-ui.new.priority');
-      if (p && /^\d$/.test(p)) {
-        sel_priority.value = p;
-      } else {
-        sel_priority.value = '2';
-      }
     } catch {
       sel_type.value = '';
-      sel_priority.value = '2';
     }
   }
 
   function saveDefaults() {
     const t = sel_type.value || '';
-    const p = sel_priority.value || '';
     if (t.length > 0) {
       window.localStorage.setItem('beads-ui.new.type', t);
-    }
-    if (p.length > 0) {
-      window.localStorage.setItem('beads-ui.new.priority', p);
     }
   }
 
@@ -202,12 +174,6 @@ export function createNewIssueDialog(mount_element, sendFn, router, store) {
       input_title.focus();
       return;
     }
-    const prio = Number(sel_priority.value || '2');
-    if (!(prio >= 0 && prio <= 4)) {
-      setError('Priority must be 0..4');
-      sel_priority.focus();
-      return;
-    }
     const type = String(sel_type.value || '');
     const desc = String(input_description.value || '');
     const labels = String(input_labels.value || '')
@@ -215,13 +181,10 @@ export function createNewIssueDialog(mount_element, sendFn, router, store) {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
-    /** @type {{ title: string, type?: string, priority?: number, description?: string }} */
+    /** @type {{ title: string, type?: string, description?: string }} */
     const payload = { title };
     if (type.length > 0) {
       payload.type = type;
-    }
-    if (String(prio).length > 0) {
-      payload.priority = prio;
     }
     if (desc.length > 0) {
       payload.description = desc;

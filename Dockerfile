@@ -43,7 +43,7 @@ COPY --from=builder /app/app ./app
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/bin ./bin
 
-# Create data directory for beads database
+# Create data directory for beads database and users
 RUN mkdir -p /data/.beads
 
 # Environment variables
@@ -51,6 +51,8 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
 ENV BEADS_DB=/data/.beads/beads.db
+ENV USERS_FILE=/data/users.json
+ENV AUTH_ENABLED=true
 
 # Expose port
 EXPOSE 3000

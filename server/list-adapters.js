@@ -1,7 +1,79 @@
+import path from 'node:path';
 import { runBdJson } from './bd.js';
 import { debug } from './logging.js';
+import { getBeadsStore } from './sync-api.js';
 
 const log = debug('list-adapters');
+
+/**
+ * Derive a project name from a workspace path.
+ * Uses the last directory segment of the path.
+ *
+ * @param {string | undefined} workspace_path
+ * @returns {string}
+ */
+function deriveProjectName(workspace_path) {
+  if (!workspace_path) return '';
+  const normalized = path.resolve(workspace_path);
+  return path.basename(normalized) || '';
+}
+
+/**
+ * Fetch items from sync store as fallback when bd CLI is not available
+ * @param {{ type: string, params?: Record<string, string | number | boolean> }} spec
+ * @returns {{ ok: true, items: any[] } | { ok: false, error: { code: string, message: string } }}
+ */
+function fetchFromSyncStore(spec) {
+  const store = getBeadsStore();
+  let items = Array.from(store.values());
+
+  const t = String(spec.type);
+  switch (t) {
+    case 'all-issues':
+      // Return all items
+      break;
+    case 'in-progress-issues':
+      items = items.filter(i => i.status === 'in_progress');
+      break;
+    case 'closed-issues':
+      items = items.filter(i => i.status === 'closed');
+      break;
+    case 'ready-issues':
+      items = items.filter(i => i.status === 'ready');
+      break;
+    case 'epics':
+      items = items.filter(i => i.type === 'epic' || i.issue_type === 'epic');
+      break;
+    case 'issue-detail': {
+      const p = spec.params || {};
+      const id = String(p.id || '').trim();
+      if (id.length === 0) {
+        return { ok: false, error: { code: 'bad_request', message: 'Missing param: params.id' } };
+      }
+      const item = store.get(id);
+      if (!item) {
+        return { ok: false, error: { code: 'not_found', message: `Issue ${id} not found` } };
+      }
+      items = [item];
+      break;
+    }
+    default:
+      return { ok: false, error: { code: 'bad_request', message: `Unknown type: ${t}` } };
+  }
+
+  // Normalize items to expected format
+  const normalized = items.map(item => ({
+    ...item,
+    id: String(item.id || ''),
+    issue_type: item.type || item.issue_type || 'task',
+    created_at: item.created_at || 0,
+    updated_at: item.updated_at || item.created_at || 0,
+    closed_at: item.closed_at || null
+  }));
+
+  log('fetchFromSyncStore: returning %d items for %s', normalized.length, t);
+  return { ok: true, items: normalized };
+}
 
 /**
  * Build concrete `bd` CLI args for a subscription type + params.
@@ -50,15 +122,18 @@ export function mapSubscriptionToBdArgs(spec) {
  * - Ensures `id` is a string.
  * - Coerces timestamps to numbers.
  * - `closed_at` defaults to null when missing or invalid.
+ * - Adds `project` field if provided.
  *
  * @param {unknown} value
- * @returns {Array<{ id: string, created_at: number, updated_at: number, closed_at: number | null } & Record<string, unknown>>}
+ * @param {{ project?: string }} [options]
+ * @returns {Array<{ id: string, created_at: number, updated_at: number, closed_at: number | null, project?: string } & Record<string, unknown>>}
  */
-export function normalizeIssueList(value) {
+export function normalizeIssueList(value, options = {}) {
   if (!Array.isArray(value)) {
     return [];
   }
-  /** @type {Array<{ id: string, created_at: number, updated_at: number, closed_at: number | null } & Record<string, unknown>>} */
+  const project = options.project || '';
+  /** @type {Array<{ id: string, created_at: number, updated_at: number, closed_at: number | null, project?: string } & Record<string, unknown>>} */
   const out = [];
   for (const it of value) {
     const id = String(it.id ?? '');
@@ -79,7 +154,8 @@ export function normalizeIssueList(value) {
       id,
       created_at: Number.isFinite(created_at) ? created_at : 0,
       updated_at: Number.isFinite(updated_at) ? updated_at : 0,
-      closed_at
+      closed_at,
+      project: project || it.project || ''
     });
   }
   return out;
@@ -127,6 +203,11 @@ export async function fetchListForSubscription(spec, options = {}) {
         res?.code,
         res?.stderr || ''
       );
+      // Fallback to sync store when bd CLI is not available (exit code 127)
+      if (res?.code === 127) {
+        log('bd not found, falling back to sync store');
+        return fetchFromSyncStore(spec);
+      }
       return {
         ok: false,
         error: {
@@ -171,7 +252,9 @@ export async function fetchListForSubscription(spec, options = {}) {
       });
     }
 
-    const items = normalizeIssueList(raw);
+    // Derive project name from workspace path
+    const project = deriveProjectName(options.cwd);
+    const items = normalizeIssueList(raw, { project });
     return { ok: true, items };
   } catch (err) {
     log('bd invocation failed for %o (args=%o): %o', spec, args, err);

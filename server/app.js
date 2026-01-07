@@ -5,7 +5,7 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { registerWorkspace } from './registry-watcher.js';
-import { createNotesRouter } from './notes-api.js';
+import { createSyncRouter } from './sync-api.js';
 
 /**
  * Create and configure the Express application.
@@ -52,8 +52,8 @@ export function createApp(config) {
     res.status(200).json({ ok: true, registered: workspace_path });
   });
 
-  // Mount notes API routes
-  app.use('/api/notes', createNotesRouter());
+  // Mount sync API routes for Claude Code instances
+  app.use('/api/sync', createSyncRouter());
 
   if (
     !fs.statSync(path.resolve(config.app_dir, 'main.bundle.js'), {

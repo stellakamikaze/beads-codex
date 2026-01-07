@@ -62,45 +62,6 @@ describe('ws mutation handlers', () => {
     expect(obj.error.code).toBe('bad_request');
   });
 
-  test('update-priority success path', async () => {
-    const mRun = /** @type {import('vitest').Mock} */ (runBd);
-    const mJson = /** @type {import('vitest').Mock} */ (runBdJson);
-    mRun.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '' });
-    mJson.mockResolvedValueOnce({
-      code: 0,
-      stdoutJson: { id: 'UI-7', priority: 1 }
-    });
-    const ws = makeStubSocket();
-    const req = {
-      id: 'r3',
-      type: 'update-priority',
-      payload: { id: 'UI-7', priority: 1 }
-    };
-    await handleMessage(
-      /** @type {any} */ (ws),
-      Buffer.from(JSON.stringify(req))
-    );
-    const obj = JSON.parse(ws.sent[ws.sent.length - 1]);
-    expect(obj.ok).toBe(true);
-    expect(obj.payload.priority).toBe(1);
-  });
-
-  test('update-priority invalid payload yields bad_request', async () => {
-    const ws = makeStubSocket();
-    const req = {
-      id: 'r3bad',
-      type: 'update-priority',
-      payload: { id: 'UI-7', priority: 9 }
-    };
-    await handleMessage(
-      /** @type {any} */ (ws),
-      Buffer.from(JSON.stringify(req))
-    );
-    const obj = JSON.parse(ws.sent[ws.sent.length - 1]);
-    expect(obj.ok).toBe(false);
-    expect(obj.error && obj.error.code).toBe('bad_request');
-  });
-
   test('edit-text title success', async () => {
     const mRun = /** @type {import('vitest').Mock} */ (runBd);
     const mJson = /** @type {import('vitest').Mock} */ (runBdJson);
@@ -122,53 +83,6 @@ describe('ws mutation handlers', () => {
     const obj = JSON.parse(ws.sent[ws.sent.length - 1]);
     expect(obj.ok).toBe(true);
     expect(obj.payload.title).toBe('New');
-  });
-
-  // update-type removed; no server handler remains
-
-  test('update-assignee validates and returns updated issue', async () => {
-    const mRun = /** @type {import('vitest').Mock} */ (runBd);
-    const mJson = /** @type {import('vitest').Mock} */ (runBdJson);
-    mRun.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '' });
-    mJson.mockResolvedValueOnce({ code: 0, stdoutJson: { id: 'UI-2' } });
-    const ws = makeStubSocket();
-    const req = {
-      id: 'rua',
-      type: /** @type {any} */ ('update-assignee'),
-      payload: { id: 'UI-2', assignee: 'max' }
-    };
-    await handleMessage(
-      /** @type {any} */ (ws),
-      Buffer.from(JSON.stringify(req))
-    );
-    const call = mRun.mock.calls[mRun.mock.calls.length - 1];
-    expect(call[0][0]).toBe('update');
-    expect(call[0].includes('--assignee')).toBe(true);
-    const obj = JSON.parse(ws.sent[ws.sent.length - 1]);
-    expect(obj.ok).toBe(true);
-    expect(obj.payload.id).toBe('UI-2');
-  });
-
-  test('update-assignee allows clearing with empty string', async () => {
-    const mRun = /** @type {import('vitest').Mock} */ (runBd);
-    const mJson = /** @type {import('vitest').Mock} */ (runBdJson);
-    mRun.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '' });
-    mJson.mockResolvedValueOnce({ code: 0, stdoutJson: { id: 'UI-31' } });
-    const ws = makeStubSocket();
-    const req = {
-      id: 'rua2',
-      type: /** @type {any} */ ('update-assignee'),
-      payload: { id: 'UI-31', assignee: '' }
-    };
-    await handleMessage(
-      /** @type {any} */ (ws),
-      Buffer.from(JSON.stringify(req))
-    );
-    const call = mRun.mock.calls[mRun.mock.calls.length - 1];
-    expect(call[0]).toEqual(['update', 'UI-31', '--assignee', '']);
-    const obj = JSON.parse(ws.sent[ws.sent.length - 1]);
-    expect(obj.ok).toBe(true);
-    expect(obj.payload.id).toBe('UI-31');
   });
 
   test('edit-text acceptance success', async () => {
@@ -327,7 +241,6 @@ describe('ws mutation handlers', () => {
       payload: {
         title: 'New item',
         type: 'task',
-        priority: 2,
         description: 'x'
       }
     };

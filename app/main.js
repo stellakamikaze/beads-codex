@@ -11,6 +11,7 @@ import { createStore } from './state.js';
 import { createActivityIndicator } from './utils/activity-indicator.js';
 import { debug } from './utils/logging.js';
 import { showToast } from './utils/toast.js';
+import { createAboutView } from './views/about.js';
 import { createBoardView } from './views/board.js';
 import { createDetailView } from './views/detail.js';
 import { createEpicsView } from './views/epics.js';
@@ -19,8 +20,6 @@ import { createIssueDialog } from './views/issue-dialog.js';
 import { createListView } from './views/list.js';
 import { createTopNav } from './views/nav.js';
 import { createNewIssueDialog } from './views/new-issue-dialog.js';
-import { createNotesView } from './views/notes.js';
-import { createQuestionsView } from './views/questions.js';
 import { createWorkspacePicker } from './views/workspace-picker.js';
 import { createWsClient } from './ws.js';
 
@@ -35,13 +34,12 @@ export function bootstrap(root_element) {
 
   // Render route shells (nav is mounted in header)
   const shell = html`
+    <section id="about-root" class="route about" hidden></section>
     <section id="issues-root" class="route issues">
       <aside id="list-panel" class="panel"></aside>
     </section>
     <section id="epics-root" class="route epics" hidden></section>
     <section id="board-root" class="route board" hidden></section>
-    <section id="notes-root" class="route notes" hidden></section>
-    <section id="questions-root" class="route questions" hidden></section>
     <section id="detail-panel" class="route detail" hidden></section>
   `;
   render(shell, root_element);
@@ -49,21 +47,19 @@ export function bootstrap(root_element) {
   /** @type {HTMLElement|null} */
   const nav_mount = document.getElementById('top-nav');
   /** @type {HTMLElement|null} */
+  const about_root = document.getElementById('about-root');
+  /** @type {HTMLElement|null} */
   const issues_root = document.getElementById('issues-root');
   /** @type {HTMLElement|null} */
   const epics_root = document.getElementById('epics-root');
   /** @type {HTMLElement|null} */
   const board_root = document.getElementById('board-root');
-  /** @type {HTMLElement|null} */
-  const notes_root = document.getElementById('notes-root');
-  /** @type {HTMLElement|null} */
-  const questions_root = document.getElementById('questions-root');
 
   /** @type {HTMLElement|null} */
   const list_mount = document.getElementById('list-panel');
   /** @type {HTMLElement|null} */
   const detail_mount = document.getElementById('detail-panel');
-  if (list_mount && issues_root && epics_root && board_root && notes_root && questions_root && detail_mount) {
+  if (list_mount && about_root && issues_root && epics_root && board_root && detail_mount) {
     /** @type {HTMLElement|null} */
     const header_loading = document.getElementById('header-loading');
     const activity = createActivityIndicator(header_loading);
@@ -390,16 +386,14 @@ export function bootstrap(root_element) {
       log('filters parse error: %o', err);
     }
     // Load last-view from storage
-    /** @type {'issues'|'epics'|'board'|'notes'|'questions'} */
+    /** @type {'issues'|'epics'|'board'} */
     let last_view = 'issues';
     try {
       const raw_view = window.localStorage.getItem('beads-ui.view');
       if (
         raw_view === 'issues' ||
         raw_view === 'epics' ||
-        raw_view === 'board' ||
-        raw_view === 'notes' ||
-        raw_view === 'questions'
+        raw_view === 'board'
       ) {
         last_view = raw_view;
       }
@@ -635,6 +629,7 @@ export function bootstrap(root_element) {
 
     // Toggle route shells on view/detail change and persist
     const data = createDataLayer(transport);
+    const about_view = createAboutView(about_root);
     const epics_view = createEpicsView(
       epics_root,
       data,
@@ -651,10 +646,6 @@ export function bootstrap(root_element) {
       sub_issue_stores,
       transport
     );
-
-    // Notes and Questions views (no beads subscriptions needed - use HTTP API)
-    const notes_view = createNotesView(notes_root, store);
-    const questions_view = createQuestionsView(questions_root, store);
 
     // Preload epics when switching to view
     /**
@@ -935,17 +926,22 @@ export function bootstrap(root_element) {
     /**
      * Manage route visibility and list subscriptions per view.
      *
-     * @param {{ selected_id: string | null, view: 'issues'|'epics'|'board'|'notes'|'questions', filters: any }} s
+     * @param {{ selected_id: string | null, view: 'about'|'issues'|'epics'|'board', filters: any }} s
      */
     const onRouteChange = (s) => {
-      if (issues_root && epics_root && board_root && notes_root && questions_root && detail_mount) {
+      if (about_root && issues_root && epics_root && board_root && detail_mount) {
         // Underlying route visibility is controlled only by selected view
+        about_root.hidden = s.view !== 'about';
         issues_root.hidden = s.view !== 'issues';
         epics_root.hidden = s.view !== 'epics';
         board_root.hidden = s.view !== 'board';
-        notes_root.hidden = s.view !== 'notes';
-        questions_root.hidden = s.view !== 'questions';
         // detail_mount visibility handled in subscription above
+      }
+      // Mount/unmount about view
+      if (s.view === 'about') {
+        about_view.mount();
+      } else {
+        about_view.unmount();
       }
       // Ensure subscriptions for the active tab before loading the view to
       // avoid empty initial renders due to racing list-delta.
@@ -955,12 +951,6 @@ export function bootstrap(root_element) {
       }
       if (!s.selected_id && s.view === 'board') {
         void board_view.load();
-      }
-      if (!s.selected_id && s.view === 'notes') {
-        notes_view.reload();
-      }
-      if (!s.selected_id && s.view === 'questions') {
-        questions_view.reload();
       }
       window.localStorage.setItem('beads-ui.view', s.view);
     };
@@ -1034,8 +1024,10 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
     /** @type {HTMLElement|null} */
     const app_root = document.getElementById('app');
-    if (app_root) {
-      bootstrap(app_root);
-    }
+
+    if (!app_root) return;
+
+    // Start app directly (no auth)
+    bootstrap(app_root);
   });
 }

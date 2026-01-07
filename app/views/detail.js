@@ -4,8 +4,6 @@ import { parseView } from '../router.js';
 import { issueHashFor } from '../utils/issue-url.js';
 import { debug } from '../utils/logging.js';
 import { renderMarkdown } from '../utils/markdown.js';
-import { emojiForPriority } from '../utils/priority-badge.js';
-import { priority_levels } from '../utils/priority.js';
 import { statusLabel } from '../utils/status.js';
 import { showToast } from '../utils/toast.js';
 import { createTypeBadge } from '../utils/type-badge.js';
@@ -37,7 +35,6 @@ function formatCommentDate(dateStr) {
  * @property {string} id
  * @property {string} [title]
  * @property {string} [status]
- * @property {number} [priority]
  * @property {string} [issue_type]
  */
 
@@ -58,8 +55,6 @@ function formatCommentDate(dateStr) {
  * @property {string} [acceptance]
  * @property {string} [notes]
  * @property {string} [status]
- * @property {string} [assignee]
- * @property {number} [priority]
  * @property {string[]} [labels]
  * @property {Dependency[]} [dependencies]
  * @property {Dependency[]} [dependents]
@@ -105,14 +100,14 @@ export function createDetailView(
   let edit_notes = false;
   /** @type {boolean} */
   let edit_accept = false;
-  /** @type {boolean} */
-  let edit_assignee = false;
   /** @type {string} */
   let new_label_text = '';
   /** @type {string} */
   let comment_text = '';
   /** @type {boolean} */
   let comment_pending = false;
+  /** @type {boolean} */
+  let comment_is_instruction = false;
 
   /** @type {HTMLDialogElement | null} */
   let delete_dialog = null;
@@ -324,70 +319,6 @@ export function createDetailView(
     edit_title = false;
     doRender();
   };
-  // Assignee inline edit handlers
-  const onAssigneeSpanClick = () => {
-    edit_assignee = true;
-    doRender();
-  };
-  /**
-   * @param {KeyboardEvent} ev
-   */
-  const onAssigneeKeydown = (ev) => {
-    if (ev.key === 'Enter') {
-      ev.preventDefault();
-      edit_assignee = true;
-      doRender();
-    } else if (ev.key === 'Escape') {
-      ev.preventDefault();
-      edit_assignee = false;
-      doRender();
-    }
-  };
-  const onAssigneeSave = async () => {
-    if (!current || pending) {
-      return;
-    }
-    const input = /** @type {HTMLInputElement|null} */ (
-      mount_element.querySelector('#detail-root .prop.assignee input')
-    );
-    const prev = current?.assignee ?? '';
-    const next = input?.value ?? '';
-    if (next === prev) {
-      edit_assignee = false;
-      doRender();
-      return;
-    }
-    pending = true;
-    if (input) {
-      input.disabled = true;
-    }
-    try {
-      log('save assignee %s → %s', String(current.id), next);
-      const updated = await sendFn('update-assignee', {
-        id: current.id,
-        assignee: next
-      });
-      if (updated && typeof updated === 'object') {
-        current = /** @type {IssueDetail} */ (updated);
-        edit_assignee = false;
-        doRender();
-      }
-    } catch (err) {
-      log('save assignee failed %s %o', String(current.id), err);
-      // revert visually
-      current.assignee = prev;
-      edit_assignee = false;
-      doRender();
-      showToast('Failed to update assignee', 'error');
-    } finally {
-      pending = false;
-    }
-  };
-  const onAssigneeCancel = () => {
-    edit_assignee = false;
-    doRender();
-  };
-
   // Labels handlers
   /**
    * @param {Event} ev
@@ -493,43 +424,6 @@ export function createDetailView(
       pending = false;
     }
   };
-  /**
-   * @param {Event} ev
-   */
-  const onPriorityChange = async (ev) => {
-    if (!current || pending) {
-      doRender();
-      return;
-    }
-    const sel = /** @type {HTMLSelectElement} */ (ev.currentTarget);
-    const prev = typeof current.priority === 'number' ? current.priority : 2;
-    const next = Number(sel.value);
-    if (next === prev) {
-      return;
-    }
-    pending = true;
-    current.priority = next;
-    doRender();
-    try {
-      log('update priority %s → %d', String(current.id), next);
-      const updated = await sendFn('update-priority', {
-        id: current.id,
-        priority: next
-      });
-      if (updated && typeof updated === 'object') {
-        current = /** @type {IssueDetail} */ (updated);
-        doRender();
-      }
-    } catch (err) {
-      log('update priority failed %s %o', String(current.id), err);
-      current.priority = prev;
-      doRender();
-      showToast('Failed to update priority', 'error');
-    } finally {
-      pending = false;
-    }
-  };
-
   const onDescEdit = () => {
     edit_desc = true;
     doRender();
@@ -830,15 +724,17 @@ export function createDetailView(
     comment_pending = true;
     doRender();
     try {
-      log('add comment to %s', String(current.id));
+      log('add comment to %s (is_instruction=%s)', String(current.id), comment_is_instruction);
       const result = await sendFn('add-comment', {
         id: current.id,
-        text: comment_text.trim()
+        text: comment_text.trim(),
+        is_instruction: comment_is_instruction
       });
       if (Array.isArray(result)) {
         // Update comments in current issue
         /** @type {any} */ (current).comments = result;
         comment_text = '';
+        comment_is_instruction = false;
         doRender();
       }
     } catch (err) {
@@ -944,27 +840,6 @@ export function createDetailView(
           (s) =>
             html`<option value=${s} ?selected=${cur === s}>
               ${statusLabel(s)}
-            </option>`
-        );
-      })()}
-    </select>`;
-
-    const priority_select = html`<select
-      class=${`badge-select badge--priority is-p${String(
-        typeof issue.priority === 'number' ? issue.priority : 2
-      )}`}
-      @change=${onPriorityChange}
-      .value=${String(typeof issue.priority === 'number' ? issue.priority : 2)}
-      ?disabled=${pending}
-    >
-      ${(() => {
-        const cur = String(
-          typeof issue.priority === 'number' ? issue.priority : 2
-        );
-        return priority_levels.map(
-          (p, i) =>
-            html`<option value=${String(i)} ?selected=${cur === String(i)}>
-              ${emojiForPriority(i)} ${p}
             </option>`
         );
       })()}
@@ -1176,9 +1051,12 @@ export function createDetailView(
         ? html`<div class="muted">No comments yet</div>`
         : comments.map(
             (c) => html`
-              <div class="comment-item">
+              <div class="comment-item ${/** @type {any} */ (c).is_instruction ? 'is-instruction' : ''}">
                 <div class="comment-header">
                   <span class="comment-author">${c.author || 'Unknown'}</span>
+                  ${/** @type {any} */ (c).is_instruction
+                    ? html`<span class="instruction-badge">Istruzione</span>`
+                    : ''}
                   <span class="comment-date"
                     >${formatCommentDate(c.created_at)}</span
                   >
@@ -1196,12 +1074,28 @@ export function createDetailView(
           @keydown=${onCommentKeydown}
           ?disabled=${comment_pending}
         ></textarea>
-        <button
-          @click=${onCommentSubmit}
-          ?disabled=${comment_pending || !comment_text.trim()}
-        >
-          ${comment_pending ? 'Adding...' : 'Add Comment'}
-        </button>
+        <div class="comment-actions">
+          <label class="instruction-checkbox">
+            <input
+              type="checkbox"
+              .checked=${comment_is_instruction}
+              @change=${
+                /** @param {Event} e */ (e) => {
+                  comment_is_instruction = /** @type {HTMLInputElement} */ (e.currentTarget).checked;
+                  doRender();
+                }
+              }
+              ?disabled=${comment_pending}
+            />
+            Istruzione per Claude
+          </label>
+          <button
+            @click=${onCommentSubmit}
+            ?disabled=${comment_pending || !comment_text.trim()}
+          >
+            ${comment_pending ? 'Adding...' : 'Add Comment'}
+          </button>
+        </div>
       </div>
     </div>`;
 
@@ -1235,69 +1129,6 @@ export function createDetailView(
                 <div class="prop">
                   <div class="label">Status</div>
                   <div class="value">${status_select}</div>
-                </div>
-                <div class="prop">
-                  <div class="label">Priority</div>
-                  <div class="value">${priority_select}</div>
-                </div>
-                <div class="prop assignee">
-                  <div class="label">Assignee</div>
-                  <div class="value">
-                    ${
-                      edit_assignee
-                        ? html`<input
-                              type="text"
-                              aria-label="Edit assignee"
-                              .value=${
-                                /** @type {any} */ (issue).assignee || ''
-                              }
-                              size=${Math.min(
-                                40,
-                                Math.max(12, (issue.assignee || '').length + 3)
-                              )}
-                              @keydown=${
-                                /** @param {KeyboardEvent} e */ (e) => {
-                                  if (e.key === 'Escape') {
-                                    e.preventDefault();
-                                    onAssigneeCancel();
-                                  } else if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    onAssigneeSave();
-                                  }
-                                }
-                              }
-                            />
-                            <button
-                              class="btn"
-                              style="margin-left:6px"
-                              @click=${onAssigneeSave}
-                            >
-                              Save
-                            </button>
-                            <button
-                              class="btn"
-                              style="margin-left:6px"
-                              @click=${onAssigneeCancel}
-                            >
-                              Cancel
-                            </button>`
-                        : html`${(() => {
-                            const raw = issue.assignee || '';
-                            const has = raw.trim().length > 0;
-                            const text = has ? raw : 'Unassigned';
-                            const cls = has ? 'editable' : 'editable muted';
-                            return html`<span
-                              class=${cls}
-                              tabindex="0"
-                              role="button"
-                              aria-label="Edit assignee"
-                              @click=${onAssigneeSpanClick}
-                              @keydown=${onAssigneeKeydown}
-                              >${text}</span
-                            >`;
-                          })()}`
-                    }
-                  </div>
                 </div>
               </div>
               ${labels_block}

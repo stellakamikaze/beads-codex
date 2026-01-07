@@ -5,6 +5,7 @@ import { getConfig } from './config.js';
 import { resolveDbPath } from './db.js';
 import { debug, enableAllDebug } from './logging.js';
 import { registerWorkspace, watchRegistry } from './registry-watcher.js';
+import { subscribeToChanges } from './sync-api.js';
 import { watchDb } from './watcher.js';
 import { attachWsServer } from './ws.js';
 import { initWorkspace } from './workspace-state.js';
@@ -46,13 +47,19 @@ const db_watcher = watchDb(config.root_dir, () => {
   // v2: all updates flow via subscription push envelopes only
 });
 
-const { scheduleListRefresh } = attachWsServer(server, {
+const { scheduleListRefresh, broadcast } = attachWsServer(server, {
   path: '/ws',
   heartbeat_ms: 30000,
   // Coalesce DB change bursts into one refresh run
   refresh_debounce_ms: 75,
   root_dir: config.root_dir,
   watcher: db_watcher
+});
+
+// Wire up sync API to broadcast changes to all connected clients
+subscribeToChanges((event) => {
+  log('sync event: %s', event.type);
+  broadcast(/** @type {any} */ (event.type), event.data);
 });
 
 // Watch the global registry for workspace changes (e.g., when user starts

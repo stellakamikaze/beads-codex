@@ -1,9 +1,8 @@
 import { html, render } from 'lit-html';
 import { createListSelectors } from '../data/list-selectors.js';
-import { cmpClosedDesc, cmpPriorityThenCreated } from '../data/sort.js';
+import { cmpClosedDesc, cmpCreatedAsc } from '../data/sort.js';
 import { createIssueIdRenderer } from '../utils/issue-id-renderer.js';
 import { debug } from '../utils/logging.js';
-import { createPriorityBadge } from '../utils/priority-badge.js';
 import { showToast } from '../utils/toast.js';
 import { createTypeBadge } from '../utils/type-badge.js';
 
@@ -12,7 +11,6 @@ import { createTypeBadge } from '../utils/type-badge.js';
  *   id: string,
  *   title?: string,
  *   status?: 'open'|'in_progress'|'closed',
- *   priority?: number,
  *   issue_type?: string,
  *   created_at?: number,
  *   updated_at?: number,
@@ -37,7 +35,7 @@ const COLUMN_STATUS_MAP = {
  * Push-only: derives items from per-subscription stores.
  *
  * Sorting rules:
- * - Ready/Blocked/In progress: priority asc, then created_at asc.
+ * - Ready/Blocked/In progress: created_at asc.
  * - Closed: closed_at desc.
  *
  * @param {HTMLElement} mount_element
@@ -180,7 +178,7 @@ export function createBoardView(
           ${it.title || '(no title)'}
         </div>
         <div class="board-card__meta">
-          ${createTypeBadge(it.issue_type)} ${createPriorityBadge(it.priority)}
+          ${createTypeBadge(it.issue_type)}
           ${createIssueIdRenderer(it.id, { class_name: 'mono' })}
         </div>
       </article>
@@ -698,9 +696,9 @@ export function createBoardView(
           ready = ready.filter((i) => !in_progress_ids.has(i.id));
 
           // Sort as per column rules
-          ready.sort(cmpPriorityThenCreated);
-          blocked.sort(cmpPriorityThenCreated);
-          in_prog.sort(cmpPriorityThenCreated);
+          ready.sort(cmpCreatedAsc);
+          blocked.sort(cmpCreatedAsc);
+          in_prog.sort(cmpCreatedAsc);
           list_ready = ready;
           list_blocked = blocked;
           list_in_progress = in_prog;

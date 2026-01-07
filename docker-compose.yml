@@ -8,15 +8,18 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # Persistent storage for beads database and notes
-      - beads-data:/data/.beads
-      # Optional: mount local projects for development
-      # - ./projects:/projects
+      # Persistent storage for beads database, notes, and users
+      - beads-data:/data
     environment:
       - NODE_ENV=production
       - HOST=0.0.0.0
       - PORT=3000
       - DEBUG=beads-ui:*
+      # Authentication
+      - AUTH_ENABLED=true
+      - JWT_SECRET=${JWT_SECRET:-changeme-in-production}
+      - USERS_FILE=/data/users.json
+      - BEADS_DB=/data/.beads/beads.db
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]

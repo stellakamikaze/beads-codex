@@ -15,10 +15,9 @@ export interface Issue extends IssueRef {
   title?: string;
   status?: string;
   epic_id?: string | null;
-  priority?: number;
   issue_type?: string;
-  assignee?: string | null;
   labels?: string[];
+  project?: string;
   // Relationship fields for detail payloads
   dependencies?: DependencyRef[];
   dependents?: DependencyRef[];
@@ -28,11 +27,18 @@ export interface DependencyRef {
   id: string;
   title?: string;
   status?: string;
-  priority?: number;
   issue_type?: string;
   created_at?: number;
   updated_at?: number;
   closed_at?: number | null;
+}
+
+export interface Comment {
+  id: number;
+  author?: string;
+  text: string;
+  created_at?: string;
+  is_instruction?: boolean;
 }
 
 export type SubscriptionType =

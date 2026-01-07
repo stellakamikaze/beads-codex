@@ -1,21 +1,19 @@
 import { html } from 'lit-html';
 import { createIssueIdRenderer } from '../utils/issue-id-renderer.js';
-import { emojiForPriority } from '../utils/priority-badge.js';
-import { priority_levels } from '../utils/priority.js';
 import { statusLabel } from '../utils/status.js';
 import { createTypeBadge } from '../utils/type-badge.js';
 
 /**
- * @typedef {{ id: string, title?: string, status?: string, priority?: number, issue_type?: string, assignee?: string, dependency_count?: number, dependent_count?: number }} IssueRowData
+ * @typedef {{ id: string, title?: string, status?: string, issue_type?: string, project?: string }} IssueRowData
  */
 
 /**
  * Create a reusable issue row renderer used by list and epics views.
- * Handles inline editing for title/assignee and selects for status/priority.
+ * Handles inline editing for title and selects for status.
  *
  * @param {{
  *   navigate: (id: string) => void,
- *   onUpdate: (id: string, patch: { title?: string, assignee?: string, status?: 'open'|'in_progress'|'closed', priority?: number }) => Promise<void>,
+ *   onUpdate: (id: string, patch: { title?: string, status?: 'open'|'in_progress'|'closed' }) => Promise<void>,
  *   requestRender: () => void,
  *   getSelectedId?: () => string | null,
  *   row_class?: string
@@ -34,11 +32,10 @@ export function createIssueRowRenderer(options) {
 
   /**
    * @param {string} id
-   * @param {'title'|'assignee'} key
+   * @param {'title'} key
    * @param {string} value
-   * @param {string} [placeholder]
    */
-  function editableText(id, key, value, placeholder = '') {
+  function editableText(id, key, value) {
     const k = `${id}:${key}`;
     const is_edit = editing.has(k);
     if (is_edit) {
@@ -100,23 +97,19 @@ export function createIssueRowRenderer(options) {
           }
         }
       }
-      >${value || placeholder}</span
+      >${value}</span
     >`;
   }
 
   /**
    * @param {string} id
-   * @param {'priority'|'status'} key
    * @returns {(ev: Event) => Promise<void>}
    */
-  function makeSelectChange(id, key) {
+  function makeStatusChange(id) {
     return async (ev) => {
       const sel = /** @type {HTMLSelectElement} */ (ev.currentTarget);
       const val = sel.value || '';
-      /** @type {{ [k:string]: any }} */
-      const patch = {};
-      patch[key] = key === 'priority' ? Number(val) : val;
-      await on_update(id, patch);
+      await on_update(id, { status: /** @type {'open'|'in_progress'|'closed'} */ (val) });
     };
   }
 
@@ -139,7 +132,6 @@ export function createIssueRowRenderer(options) {
    */
   function rowTemplate(it) {
     const cur_status = String(it.status || 'open');
-    const cur_prio = String(it.priority ?? 2);
     const is_selected = get_selected_id() === it.id;
     return html`<tr
       role="row"
@@ -154,7 +146,7 @@ export function createIssueRowRenderer(options) {
         <select
           class="badge-select badge--status is-${cur_status}"
           .value=${cur_status}
-          @change=${makeSelectChange(it.id, 'status')}
+          @change=${makeStatusChange(it.id)}
         >
           ${['open', 'in_progress', 'closed'].map(
             (s) =>
@@ -163,51 +155,6 @@ export function createIssueRowRenderer(options) {
               </option>`
           )}
         </select>
-      </td>
-      <td role="gridcell">
-        ${editableText(it.id, 'assignee', it.assignee || '', 'Unassigned')}
-      </td>
-      <td role="gridcell">
-        <select
-          class="badge-select badge--priority ${'is-p' + cur_prio}"
-          .value=${cur_prio}
-          @change=${makeSelectChange(it.id, 'priority')}
-        >
-          ${priority_levels.map(
-            (p, i) =>
-              html`<option
-                value=${String(i)}
-                ?selected=${cur_prio === String(i)}
-              >
-                ${emojiForPriority(i)} ${p}
-              </option>`
-          )}
-        </select>
-      </td>
-      <td role="gridcell" class="deps-col">
-        ${(it.dependency_count || 0) > 0 || (it.dependent_count || 0) > 0
-          ? html`<span class="deps-indicator"
-              >${(it.dependency_count || 0) > 0
-                ? html`<span
-                    class="dep-count"
-                    title="${it.dependency_count} ${(it.dependency_count ||
-                      0) === 1
-                      ? 'dependency'
-                      : 'dependencies'}"
-                    >→${it.dependency_count}</span
-                  >`
-                : ''}${(it.dependent_count || 0) > 0
-                ? html`<span
-                    class="dependent-count"
-                    title="${it.dependent_count} ${(it.dependent_count || 0) ===
-                    1
-                      ? 'dependent'
-                      : 'dependents'}"
-                    >←${it.dependent_count}</span
-                  >`
-                : ''}</span
-            >`
-          : ''}
       </td>
     </tr>`;
   }

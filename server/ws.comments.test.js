@@ -60,7 +60,25 @@ describe('get-comments handler', () => {
     expect(ws.sent.length).toBe(1);
     const reply = JSON.parse(ws.sent[0]);
     expect(reply.ok).toBe(true);
-    expect(reply.payload).toEqual(comments);
+    // Comments are transformed to include is_instruction flag
+    expect(reply.payload).toEqual([
+      {
+        id: 1,
+        issue_id: 'UI-1',
+        author: 'alice',
+        text: 'First comment',
+        created_at: '2025-01-01T00:00:00Z',
+        is_instruction: false
+      },
+      {
+        id: 2,
+        issue_id: 'UI-1',
+        author: 'bob',
+        text: 'Second comment',
+        created_at: '2025-01-02T00:00:00Z',
+        is_instruction: false
+      }
+    ]);
 
     // Verify bd was called with correct args
     expect(rj).toHaveBeenCalledWith(['comments', 'UI-1', '--json']);
@@ -149,7 +167,17 @@ describe('add-comment handler', () => {
     expect(ws.sent.length).toBe(1);
     const reply = JSON.parse(ws.sent[0]);
     expect(reply.ok).toBe(true);
-    expect(reply.payload).toEqual(updatedComments);
+    // Comments are transformed to include is_instruction flag
+    expect(reply.payload).toEqual([
+      {
+        id: 1,
+        issue_id: 'UI-1',
+        author: 'Test User',
+        text: 'New comment',
+        created_at: '2025-01-01T00:00:00Z',
+        is_instruction: false
+      }
+    ]);
 
     // Verify bd was called with correct args including --author
     expect(rb).toHaveBeenCalledWith([

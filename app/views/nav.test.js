@@ -34,10 +34,11 @@ describe('views/nav', () => {
       /** @type {any} */ (router)
     );
     const links = mount.querySelectorAll('a.tab');
-    expect(links.length).toBe(3);
-    links[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(router.gotoView).toHaveBeenCalledWith('epics');
+    expect(links.length).toBe(4);
+    // Tab order: About(0), Issues(1), Epics(2), Board(3)
     links[2].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(router.gotoView).toHaveBeenCalledWith('epics');
+    links[3].dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(router.gotoView).toHaveBeenCalledWith('board');
   });
 });

@@ -4,6 +4,7 @@
  * @import { MessageType } from '../app/protocol.js'
  */
 import path from 'node:path';
+import url from 'node:url';
 import { WebSocketServer } from 'ws';
 import { isRequest, makeError, makeOk } from '../app/protocol.js';
 import { getGitUserName, runBd, runBdJson } from './bd.js';
@@ -448,8 +449,9 @@ export function attachWsServer(http_server, options = {}) {
   CURRENT_WSS = wss;
 
   // Heartbeat: track if client answered the last ping
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
     log('client connected');
+
     // @ts-expect-error add marker property
     ws.isAlive = true;
 
@@ -729,49 +731,6 @@ export async function handleMessage(ws, data) {
 
   // type updates are not exposed via UI; no handler
 
-  // update-assignee
-  if (req.type === 'update-assignee') {
-    const { id, assignee } = /** @type {any} */ (req.payload || {});
-    if (
-      typeof id !== 'string' ||
-      id.length === 0 ||
-      typeof assignee !== 'string'
-    ) {
-      ws.send(
-        JSON.stringify(
-          makeError(
-            req,
-            'bad_request',
-            'payload requires { id: string, assignee: string }'
-          )
-        )
-      );
-      return;
-    }
-    // Pass empty string to clear assignee when requested
-    const res = await runBd(['update', id, '--assignee', assignee]);
-    if (res.code !== 0) {
-      ws.send(
-        JSON.stringify(makeError(req, 'bd_error', res.stderr || 'bd failed'))
-      );
-      return;
-    }
-    const shown = await runBdJson(['show', id, '--json']);
-    if (shown.code !== 0) {
-      ws.send(
-        JSON.stringify(makeError(req, 'bd_error', shown.stderr || 'bd failed'))
-      );
-      return;
-    }
-    ws.send(JSON.stringify(makeOk(req, shown.stdoutJson)));
-    try {
-      triggerMutationRefreshOnce();
-    } catch {
-      // ignore
-    }
-    return;
-  }
-
   // update-status
   if (req.type === 'update-status') {
     log('update-status');
@@ -810,51 +769,6 @@ export async function handleMessage(ws, data) {
     }
     ws.send(JSON.stringify(makeOk(req, shown.stdoutJson)));
     // After mutation, refresh active subscriptions once (watcher or timeout)
-    try {
-      triggerMutationRefreshOnce();
-    } catch {
-      // ignore
-    }
-    return;
-  }
-
-  // update-priority
-  if (req.type === 'update-priority') {
-    log('update-priority');
-    const { id, priority } = /** @type {any} */ (req.payload);
-    if (
-      typeof id !== 'string' ||
-      id.length === 0 ||
-      typeof priority !== 'number' ||
-      priority < 0 ||
-      priority > 4
-    ) {
-      ws.send(
-        JSON.stringify(
-          makeError(
-            req,
-            'bad_request',
-            'payload requires { id: string, priority: 0..4 }'
-          )
-        )
-      );
-      return;
-    }
-    const res = await runBd(['update', id, '--priority', String(priority)]);
-    if (res.code !== 0) {
-      ws.send(
-        JSON.stringify(makeError(req, 'bd_error', res.stderr || 'bd failed'))
-      );
-      return;
-    }
-    const shown = await runBdJson(['show', id, '--json']);
-    if (shown.code !== 0) {
-      ws.send(
-        JSON.stringify(makeError(req, 'bd_error', shown.stderr || 'bd failed'))
-      );
-      return;
-    }
-    ws.send(JSON.stringify(makeOk(req, shown.stdoutJson)));
     try {
       triggerMutationRefreshOnce();
     } catch {
@@ -1172,13 +1086,24 @@ export async function handleMessage(ws, data) {
       );
       return;
     }
-    ws.send(JSON.stringify(makeOk(req, res.stdoutJson || [])));
+    // Transform comments to include is_instruction flag
+    const INSTRUCTION_PREFIX = '[ISTRUZIONE] ';
+    const transformed = (res.stdoutJson || []).map(
+      (/** @type {any} */ c) => ({
+        ...c,
+        is_instruction: typeof c.text === 'string' && c.text.startsWith(INSTRUCTION_PREFIX),
+        text: typeof c.text === 'string' && c.text.startsWith(INSTRUCTION_PREFIX)
+          ? c.text.slice(INSTRUCTION_PREFIX.length)
+          : c.text
+      })
+    );
+    ws.send(JSON.stringify(makeOk(req, transformed)));
     return;
   }
 
-  // add-comment: payload { id: string, text: string }
+  // add-comment: payload { id: string, text: string, is_instruction?: boolean }
   if (req.type === 'add-comment') {
-    const { id, text } = /** @type {any} */ (req.payload || {});
+    const { id, text, is_instruction } = /** @type {any} */ (req.payload || {});
     if (
       typeof id !== 'string' ||
       id.length === 0 ||
@@ -1197,9 +1122,15 @@ export async function handleMessage(ws, data) {
       return;
     }
 
+    // Prefix with [ISTRUZIONE] if marked as instruction
+    const INSTRUCTION_PREFIX = '[ISTRUZIONE] ';
+    const final_text = is_instruction
+      ? INSTRUCTION_PREFIX + text.trim()
+      : text.trim();
+
     // Get git user name for author attribution
     const author = await getGitUserName();
-    const args = ['comment', id, text.trim()];
+    const args = ['comment', id, final_text];
     if (author) {
       args.push('--author', author);
     }
@@ -1212,7 +1143,7 @@ export async function handleMessage(ws, data) {
       return;
     }
 
-    // Return updated comments list
+    // Return updated comments list with is_instruction derived from prefix
     const comments = await runBdJson(['comments', id, '--json']);
     if (comments.code !== 0) {
       ws.send(
@@ -1222,7 +1153,17 @@ export async function handleMessage(ws, data) {
       );
       return;
     }
-    ws.send(JSON.stringify(makeOk(req, comments.stdoutJson || [])));
+    // Transform comments to include is_instruction flag
+    const transformed = (comments.stdoutJson || []).map(
+      (/** @type {any} */ c) => ({
+        ...c,
+        is_instruction: typeof c.text === 'string' && c.text.startsWith(INSTRUCTION_PREFIX),
+        text: typeof c.text === 'string' && c.text.startsWith(INSTRUCTION_PREFIX)
+          ? c.text.slice(INSTRUCTION_PREFIX.length)
+          : c.text
+      })
+    );
+    ws.send(JSON.stringify(makeOk(req, transformed)));
     return;
   }
 

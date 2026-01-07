@@ -45,3 +45,20 @@ export function cmpClosedDesc(a, b) {
   const idb = b?.id;
   return ida < idb ? -1 : ida > idb ? 1 : 0;
 }
+
+/**
+ * Compare by created_at asc, then id asc for stability.
+ *
+ * @param {IssueLite} a
+ * @param {IssueLite} b
+ */
+export function cmpCreatedAsc(a, b) {
+  const ca = a.created_at ?? 0;
+  const cb = b.created_at ?? 0;
+  if (ca !== cb) {
+    return ca < cb ? -1 : 1;
+  }
+  const ida = a.id;
+  const idb = b.id;
+  return ida < idb ? -1 : ida > idb ? 1 : 0;
+}

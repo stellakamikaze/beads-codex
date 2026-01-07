@@ -45,15 +45,13 @@ export function createWsClient(options = {}) {
   const resolveUrl = () => {
     if (options.url && options.url.length > 0) {
       return options.url;
-    }
-    if (typeof location !== 'undefined') {
-      return (
-        (location.protocol === 'https:' ? 'wss://' : 'ws://') +
+    } else if (typeof location !== 'undefined') {
+      return (location.protocol === 'https:' ? 'wss://' : 'ws://') +
         location.host +
-        '/ws'
-      );
+        '/ws';
+    } else {
+      return 'ws://localhost/ws';
     }
-    return 'ws://localhost/ws';
   };
 
   /** @type {WebSocket | null} */

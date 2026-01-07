@@ -10,7 +10,7 @@ import { createIssueRowRenderer } from './issue-row.js';
 // List view implementation; requires a transport send function.
 
 /**
- * @typedef {{ id: string, title?: string, status?: 'closed'|'open'|'in_progress', priority?: number, issue_type?: string, assignee?: string, labels?: string[] }} Issue
+ * @typedef {{ id: string, title?: string, status?: 'closed'|'open'|'in_progress', issue_type?: string, project?: string }} Issue
  */
 
 /**
@@ -230,6 +230,22 @@ export function createListView(
       filtered = filtered.slice().sort(cmpClosedDesc);
     }
 
+    // Group issues by project
+    /** @type {Map<string, Issue[]>} */
+    const byProject = new Map();
+    for (const it of filtered) {
+      const proj = it.project || '(no project)';
+      const arr = byProject.get(proj) || [];
+      arr.push(it);
+      byProject.set(proj, arr);
+    }
+    // Sort project names alphabetically, but put "(no project)" last
+    const projectNames = Array.from(byProject.keys()).sort((a, b) => {
+      if (a === '(no project)') return 1;
+      if (b === '(no project)') return -1;
+      return a.localeCompare(b);
+    });
+
     return html`
       <div class="panel__header">
         <div class="filter-dropdown ${status_dropdown_open ? 'is-open' : ''}">
@@ -287,38 +303,39 @@ export function createListView(
           ? html`<div class="issues-block">
               <div class="muted" style="padding:10px 12px;">No issues</div>
             </div>`
-          : html`<div class="issues-block">
-              <table
-                class="table"
-                role="grid"
-                aria-rowcount=${String(filtered.length)}
-                aria-colcount="6"
-              >
-                <colgroup>
-                  <col style="width: 100px" />
-                  <col style="width: 120px" />
-                  <col />
-                  <col style="width: 120px" />
-                  <col style="width: 160px" />
-                  <col style="width: 130px" />
-                  <col style="width: 80px" />
-                </colgroup>
-                <thead>
-                  <tr role="row">
-                    <th role="columnheader">ID</th>
-                    <th role="columnheader">Type</th>
-                    <th role="columnheader">Title</th>
-                    <th role="columnheader">Status</th>
-                    <th role="columnheader">Assignee</th>
-                    <th role="columnheader">Priority</th>
-                    <th role="columnheader">Deps</th>
-                  </tr>
-                </thead>
-                <tbody role="rowgroup">
-                  ${filtered.map((it) => row_renderer(it))}
-                </tbody>
-              </table>
-            </div>`}
+          : projectNames.map(
+              (projectName) => html`
+                <div class="issues-block">
+                  <div class="project-header">${projectName}</div>
+                  <table
+                    class="table"
+                    role="grid"
+                    aria-rowcount=${String(byProject.get(projectName)?.length || 0)}
+                    aria-colcount="4"
+                  >
+                    <colgroup>
+                      <col style="width: 100px" />
+                      <col style="width: 100px" />
+                      <col />
+                      <col style="width: 120px" />
+                    </colgroup>
+                    <thead>
+                      <tr role="row">
+                        <th role="columnheader">ID</th>
+                        <th role="columnheader">Type</th>
+                        <th role="columnheader">Title</th>
+                        <th role="columnheader">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody role="rowgroup">
+                      ${(byProject.get(projectName) || []).map((it) =>
+                        row_renderer(it)
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              `
+            )}
       </div>
     `;
   }
@@ -347,14 +364,8 @@ export function createListView(
       if (typeof patch.title === 'string') {
         await sendFn('edit-text', { id, field: 'title', value: patch.title });
       }
-      if (typeof patch.assignee === 'string') {
-        await sendFn('update-assignee', { id, assignee: patch.assignee });
-      }
       if (typeof patch.status === 'string') {
         await sendFn('update-status', { id, status: patch.status });
-      }
-      if (typeof patch.priority === 'number') {
-        await sendFn('update-priority', { id, priority: patch.priority });
       }
     } catch {
       // ignore failures; UI state remains as-is

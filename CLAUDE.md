@@ -1,6 +1,13 @@
-# CLAUDE.md - beads-ui-fork
+# CLAUDE.md - beads-codex
 
-Fork di beads-ui con funzionalità Notes e Questions per Claude Code.
+Hub semplificato per gestire issues multi-progetto dove i commenti diventano istruzioni per Claude Code.
+
+## Workflow
+
+1. Apri Codex → vedi issues raggruppate per progetto
+2. Apri issue → leggi body (spiegazione non-tecnica)
+3. Aggiungi commento marcato come "istruzione"
+4. Claude Code sync → vede issues con istruzioni pronte
 
 ## Quick Start
 
@@ -18,72 +25,97 @@ open http://localhost:3000
 ```
 server/
 ├── app.js              # Express app + routes
-├── notes-storage.js    # Read/write project-notes.json (NEW)
-├── notes-api.js        # REST API per notes (NEW)
-├── workspace-state.js  # Shared workspace state (NEW)
-├── ws.js               # WebSocket server
-└── ...
+├── ws.js               # WebSocket server (handlers per issues/comments)
+├── bd.js               # Wrapper per bd CLI
+├── list-adapters.js    # Normalizzazione issues + project name
+├── subscriptions.js    # Real-time subscriptions
+└── sync-api.js         # Sync con workspace
 
 app/
 ├── views/
-│   ├── notes.js        # Notes view (NEW)
-│   ├── questions.js    # Questions view (NEW)
-│   ├── list.js         # Issues view
+│   ├── list.js         # Issues view (raggruppate per progetto)
+│   ├── issue-row.js    # Riga singola issue
+│   ├── detail.js       # Dettaglio issue + commenti
 │   ├── epics.js        # Epics view
-│   └── board.js        # Board view
+│   ├── board.js        # Kanban board
+│   └── nav.js          # Navigation tabs
 ├── router.js           # Hash-based routing
 ├── main.js             # Bootstrap
+├── protocol.js         # WebSocket protocol types
 └── styles.css          # CSS
 ```
 
-## Storage
+## Commenti con Istruzioni
 
-File `project-notes.json` nella directory `.beads/` di ogni progetto:
+I commenti possono essere marcati come "istruzione" per Claude Code:
 
-```json
+```javascript
+// Payload add-comment
 {
-  "state_of_art": {
-    "content": "Markdown content...",
-    "updated_at": "ISO date"
-  },
-  "questions": [
-    {
-      "id": "q...",
-      "question": "...",
-      "answer": "...",
-      "category": "roadmap|bugs|architecture|design|testing|general",
-      "answered_at": "ISO date"
-    }
-  ],
-  "question_templates": [...]
+  id: 'UI-123',
+  text: 'Implementa la validazione email',
+  is_instruction: true  // Flag per Claude Code
 }
 ```
 
-## API Endpoints
+Internamente salvato con prefisso `[ISTRUZIONE] ` nel testo.
 
+## WebSocket Handlers
+
+| Type | Payload | Descrizione |
+|------|---------|-------------|
+| `list-issues` | `{ filters }` | Lista issues |
+| `get-issue` | `{ id }` | Dettaglio singola issue |
+| `update-status` | `{ id, status }` | Cambia status |
+| `edit-text` | `{ id, field, value }` | Modifica campo testuale |
+| `get-comments` | `{ id }` | Lista commenti issue |
+| `add-comment` | `{ id, text, is_instruction? }` | Aggiungi commento |
+| `create-issue` | `{ title, type?, description? }` | Crea issue |
+| `dep-add/remove` | `{ a, b }` | Gestione dipendenze |
+| `label-add/remove` | `{ id, label }` | Gestione label |
+| `delete-issue` | `{ id }` | Elimina issue |
+
+## Multi-Progetto
+
+Le issues vengono raggruppate per `project` derivato dal workspace path:
+
+```javascript
+// In list-adapters.js
+function deriveProjectName(workspace_path) {
+  return path.basename(path.resolve(workspace_path)) || '';
+}
 ```
-GET    /api/notes              # Full notes object
-PUT    /api/notes/state-of-art # Update state of art
-GET    /api/notes/questions    # List questions
-POST   /api/notes/questions    # Add question
-PUT    /api/notes/questions/:id # Update question/answer
-DELETE /api/notes/questions/:id # Delete question
-GET    /api/notes/templates    # Get question templates
-```
+
+La list view mostra header di sezione per ogni progetto.
 
 ## Sviluppo
 
 ```bash
-# Test syntax
-node -e "import('./server/notes-storage.js')"
-node -e "import('./app/views/notes.js')"
+# Test
+npm test
 
-# Run
+# Syntax check
+node --check server/app.js
+node --check app/main.js
+
+# Run con debug
 npm start -- --debug --open
 ```
+
+## Campi Rimossi (vs beads-ui originale)
+
+- Priority (0-4)
+- Assignee
+- Chat view
+- Questions view
+- Notes view
+- Authentication
+
+I dati restano nel DB beads, solo la UI non li mostra.
 
 ## Dipendenze Chiave
 
 - Express 5.x (HTTP server)
 - lit-html (Frontend templating)
 - WebSocket (Real-time updates)
+- bd CLI (beads issue management)

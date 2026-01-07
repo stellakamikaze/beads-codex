@@ -13,7 +13,6 @@ describe('views/detail', () => {
       description:
         '# Heading\n\nImplement detail view with a [link](https://example.com) and `code`.',
       status: 'open',
-      priority: 2,
       dependencies: [{ id: 'UI-25' }, { id: 'UI-27' }],
       dependents: [{ id: 'UI-34' }]
     };
@@ -45,9 +44,9 @@ describe('views/detail', () => {
       mount.querySelector('h2 .editable')
     );
     expect(titleSpan.textContent).toBe('Issue detail view');
-    // status select + priority select exist
+    // status select exists
     const selects = mount.querySelectorAll('select');
-    expect(selects.length).toBeGreaterThanOrEqual(2);
+    expect(selects.length).toBeGreaterThanOrEqual(1);
     // description rendered as markdown in read mode
     const md = /** @type {HTMLDivElement} */ (mount.querySelector('.md'));
     expect(md).toBeTruthy();
@@ -114,7 +113,6 @@ describe('views/detail', () => {
       title: 'Issue detail view',
       description: 'Some text',
       status: 'open',
-      priority: 2,
       dependencies: [],
       dependents: []
     };
@@ -353,7 +351,7 @@ describe('views/detail', () => {
     // Verify sendFn was called correctly
     expect(calls.length).toBe(1);
     expect(calls[0].type).toBe('add-comment');
-    expect(calls[0].payload).toEqual({ id: 'UI-101', text: 'Test comment' });
+    expect(calls[0].payload).toEqual({ id: 'UI-101', text: 'Test comment', is_instruction: false });
   });
 
   test('fetches comments on load when not in snapshot', async () => {

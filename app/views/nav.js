@@ -2,11 +2,11 @@ import { html, render } from 'lit-html';
 import { debug } from '../utils/logging.js';
 
 /**
- * Render the top navigation with three tabs and handle route changes.
+ * Render the top navigation with tabs and handle route changes.
  *
  * @param {HTMLElement} mount_element
  * @param {{ getState: () => any, subscribe: (fn: (s: any) => void) => () => void }} store
- * @param {{ gotoView: (v: 'issues'|'epics'|'board') => void }} router
+ * @param {{ gotoView: (v: 'about'|'issues'|'epics'|'board') => void }} router
  */
 export function createTopNav(mount_element, store, router) {
   const log = debug('views:nav');
@@ -14,7 +14,7 @@ export function createTopNav(mount_element, store, router) {
   let unsubscribe = null;
 
   /**
-   * @param {'issues'|'epics'|'board'} view
+   * @param {'about'|'issues'|'epics'|'board'} view
    * @returns {(ev: MouseEvent) => void}
    */
   function onClick(view) {
@@ -30,6 +30,12 @@ export function createTopNav(mount_element, store, router) {
     const active = s.view || 'issues';
     return html`
       <nav class="header-nav" aria-label="Primary">
+        <a
+          href="#/about"
+          class="tab ${active === 'about' ? 'active' : ''}"
+          @click=${onClick('about')}
+          >About</a
+        >
         <a
           href="#/issues"
           class="tab ${active === 'issues' ? 'active' : ''}"
@@ -47,18 +53,6 @@ export function createTopNav(mount_element, store, router) {
           class="tab ${active === 'board' ? 'active' : ''}"
           @click=${onClick('board')}
           >Board</a
-        >
-        <a
-          href="#/notes"
-          class="tab ${active === 'notes' ? 'active' : ''}"
-          @click=${onClick('notes')}
-          >Notes</a
-        >
-        <a
-          href="#/questions"
-          class="tab ${active === 'questions' ? 'active' : ''}"
-          @click=${onClick('questions')}
-          >Questions</a
         >
       </nav>
     `;
