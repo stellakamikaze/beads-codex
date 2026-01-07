@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { registerWorkspace } from './registry-watcher.js';
 import { createSyncRouter } from './sync-api.js';
+import { createApiRouter } from './api.js';
 
 /**
  * Create and configure the Express application.
@@ -54,6 +55,9 @@ export function createApp(config) {
 
   // Mount sync API routes for Claude Code instances
   app.use('/api/sync', createSyncRouter());
+
+  // Mount REST API for Claude Code clients
+  app.use('/api', createApiRouter());
 
   if (
     !fs.statSync(path.resolve(config.app_dir, 'main.bundle.js'), {
