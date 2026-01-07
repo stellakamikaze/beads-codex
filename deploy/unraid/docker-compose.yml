@@ -1,0 +1,145 @@
+# docker-compose.yml - Codex + Claude Code Stack for Unraid
+# Deploy completo per gestione issue AI-driven
+#
+# Servizi:
+#   - codex: Hub issue con UI web e REST API
+#   - claude-code: AI agent che esegue istruzioni
+#   - unraid-mcp: MCP server per gestione Unraid
+#
+# Setup:
+#   1. Copia in /mnt/user/appdata/codex-stack/
+#   2. Crea .env con CODEX_TOKEN (genera con: openssl rand -hex 32)
+#   3. Copia credenziali Claude MAX dal tuo PC:
+#      - Windows: %USERPROFILE%\.claude\ → /mnt/user/appdata/claude-code/config/
+#      - Mac/Linux: ~/.claude/ → /mnt/user/appdata/claude-code/config/
+#   4. docker-compose up -d
+
+services:
+  # ============================================
+  # CODEX - Issue Hub con REST API
+  # ============================================
+  codex:
+    build:
+      context: https://github.com/stellakamikaze/beads-codex.git
+      dockerfile: Dockerfile
+    container_name: codex
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persistent data per beads database
+      - codex-data:/data
+      # Mount progetti per sync beads (read-write per sync bidirezionale)
+      - /mnt/user/appdata/projects:/projects:rw
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=3000
+      - DEBUG=beads-ui:*
+      # Token per autenticazione API (condiviso con Claude Code)
+      - CODEX_TOKEN=${CODEX_TOKEN}
+      # Database beads
+      - BEADS_DB=/data/.beads/beads.db
+      # Workspace da monitorare (comma-separated)
+      - BEADS_WORKSPACES=/projects
+    networks:
+      - codex-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    labels:
+      - "com.unraid.docker.managed=composeman"
+      - "com.unraid.docker.icon=https://raw.githubusercontent.com/stellakamikaze/beads-codex/main/app/favicon.svg"
+      - "net.unraid.docker.webui=http://[IP]:[PORT:3000]"
+
+  # ============================================
+  # CLAUDE CODE - AI Agent (MAX subscription)
+  # ============================================
+  # Usa credenziali Claude MAX dal tuo PC locale.
+  # Copia ~/.claude/ (o %USERPROFILE%\.claude\) a:
+  #   /mnt/user/appdata/claude-code/config/
+  #
+  claude-code:
+    image: node:22-alpine
+    container_name: claude-code
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+    command: >
+      sh -c "
+        apk add --no-cache bash git curl jq docker-cli openssh-client &&
+        npm install -g @anthropic-ai/claude-code &&
+        echo '#!/bin/bash' > /usr/local/bin/cc &&
+        echo 'claude \"\$$@\"' >> /usr/local/bin/cc &&
+        chmod +x /usr/local/bin/cc &&
+        cp /scripts/codex-client.sh /usr/local/bin/codex 2>/dev/null || true &&
+        chmod +x /usr/local/bin/codex 2>/dev/null || true &&
+        echo 'Claude Code MAX ready.' &&
+        echo 'Use: docker exec -it claude-code cc' &&
+        echo 'Codex: docker exec -it claude-code codex pending' &&
+        tail -f /dev/null
+      "
+    volumes:
+      # Workspace principale
+      - /mnt/user/appdata/projects:/workspace:rw
+      # Claude MAX credentials (copia da ~/.claude del tuo PC)
+      - /mnt/user/appdata/claude-code/config:/root/.claude:rw
+      # Scripts helper (codex-client.sh)
+      - /mnt/user/appdata/codex-stack/scripts:/scripts:ro
+      # Docker socket per gestione container
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      # SSH keys per git operations
+      - /mnt/user/appdata/claude-code/ssh:/root/.ssh:ro
+    working_dir: /workspace
+    environment:
+      - NODE_ENV=production
+      - SHELL=/bin/bash
+      # Codex API endpoint (interno alla rete Docker)
+      - CODEX_URL=http://codex:3000
+      - CODEX_TOKEN=${CODEX_TOKEN}
+      # Disable analytics
+      - CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+    networks:
+      - codex-net
+    depends_on:
+      codex:
+        condition: service_healthy
+    labels:
+      - "com.unraid.docker.managed=composeman"
+      - "com.unraid.docker.icon=https://upload.wikimedia.org/wikipedia/commons/8/8a/Claude_AI_logo.svg"
+
+  # ============================================
+  # UNRAID MCP - Management Server
+  # ============================================
+  unraid-mcp:
+    image: ghcr.io/jmagar/unraid-mcp:latest
+    container_name: unraid-mcp
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      # Unraid GraphQL API endpoint
+      - UNRAID_API_URL=${UNRAID_API_URL:-http://tower.local/graphql}
+      - UNRAID_API_KEY=${UNRAID_API_KEY}
+      # MCP server config
+      - MCP_SERVER_NAME=unraid
+      - LOG_LEVEL=info
+    networks:
+      - codex-net
+    labels:
+      - "com.unraid.docker.managed=composeman"
+      - "com.unraid.docker.icon=https://raw.githubusercontent.com/jmagar/unraid-mcp/main/logo.png"
+
+networks:
+  codex-net:
+    name: codex-network
+    driver: bridge
+
+volumes:
+  codex-data:
+    name: codex-data
+  claude-config:
+    name: claude-config

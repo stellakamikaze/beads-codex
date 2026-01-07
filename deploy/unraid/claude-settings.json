@@ -1,0 +1,40 @@
+{
+  "$schema": "https://code.claude.com/settings.schema.json",
+  "permissions": {
+    "allow": [
+      "Bash(docker:*)",
+      "Bash(git:*)",
+      "Bash(curl:*)",
+      "Bash(npm:*)",
+      "Read",
+      "Write",
+      "Edit"
+    ],
+    "deny": [
+      "Bash(rm -rf /)"
+    ]
+  },
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+      "disabled": false
+    },
+    "unraid": {
+      "url": "http://unraid-mcp:3000/sse",
+      "disabled": false
+    }
+  },
+  "hooks": {
+    "session-start": [
+      {
+        "command": "bash",
+        "args": ["-c", "pending=$(curl -s -H \"Authorization: Bearer $CODEX_TOKEN\" \"$CODEX_URL/api/issues/pending\" 2>/dev/null | jq -r '.count // 0'); [ \"$pending\" != \"0\" ] && echo \"[CODEX] $pending issue(s) con istruzioni pendenti\" || echo \"[CODEX] Nessuna istruzione pendente\""]
+      }
+    ]
+  },
+  "env": {
+    "CODEX_URL": "http://codex:3000",
+    "CODEX_TOKEN": "${CODEX_TOKEN}"
+  }
+}
