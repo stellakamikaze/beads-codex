@@ -1,0 +1,30 @@
+# docker-compose.yml - beads-codex
+# Servizio centralizzato per sincronizzare beads tra istanze Claude Code
+
+services:
+  beads-codex:
+    build: .
+    container_name: beads-codex
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persistent storage for beads database and notes
+      - beads-data:/data/.beads
+      # Optional: mount local projects for development
+      # - ./projects:/projects
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=3000
+      - DEBUG=beads-ui:*
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  beads-data:
+    name: beads-codex-data
