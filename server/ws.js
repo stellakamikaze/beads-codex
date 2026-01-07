@@ -637,9 +637,31 @@ export async function handleMessage(ws, data) {
     /** @type {Awaited<ReturnType<typeof fetchListForSubscription>> | null} */
     let initial = null;
     try {
-      initial = await fetchListForSubscription(spec, {
-        cwd: CURRENT_WORKSPACE?.root_dir
-      });
+      // For issue-detail, find the correct workspace containing the issue
+      let cwd = CURRENT_WORKSPACE?.root_dir;
+      if (spec.type === 'issue-detail' && spec.params?.id) {
+        const issueId = String(spec.params.id);
+        // If workspace path is provided in params, use it
+        if (spec.params?.workspace) {
+          cwd = String(spec.params.workspace);
+        } else {
+          // Try to find the issue in all available workspaces
+          const workspaces = getAvailableWorkspaces();
+          for (const ws of workspaces) {
+            try {
+              const testRes = await runBdJson(['show', issueId, '--json'], { cwd: ws.path });
+              if (testRes && testRes.code === 0 && testRes.stdoutJson) {
+                cwd = ws.path;
+                log('issue-detail: found %s in workspace %s', issueId, ws.path);
+                break;
+              }
+            } catch {
+              // Continue searching
+            }
+          }
+        }
+      }
+      initial = await fetchListForSubscription(spec, { cwd });
     } catch (err) {
       log('subscribe-list snapshot error for %s: %o', key, err);
       const message =

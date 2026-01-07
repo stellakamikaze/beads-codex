@@ -11,6 +11,7 @@
  */
 import { Router } from 'express';
 import { runBd, runBdJson, getGitUserName } from './bd.js';
+import { fetchAllWorkspacesIssues } from './list-adapters.js';
 import { debug } from './logging.js';
 
 const log = debug('api');
@@ -98,52 +99,100 @@ export function createApiRouter() {
   // Apply token auth to all routes
   router.use(tokenAuth);
 
-  // GET /api/issues - List all issues
+  // GET /api/issues - List all issues from all workspaces
   router.get('/issues', async (req, res) => {
     log('GET /issues');
 
     const status = req.query.status;
-    const args = ['list', '--json'];
+    const project = req.query.project;
 
-    if (status && typeof status === 'string') {
-      args.push('--status', status);
-    }
+    // Fetch from all workspaces
+    const result = await fetchAllWorkspacesIssues();
 
-    const result = await runBdJson(args);
-
-    if (result.code !== 0) {
+    if (!result.ok) {
       res.status(500).json({
         ok: false,
-        error: 'bd_error',
-        message: result.stderr || 'Failed to list issues'
+        error: 'fetch_error',
+        message: result.error?.message || 'Failed to list issues'
       });
       return;
+    }
+
+    let issues = result.items || [];
+
+    // Apply filters
+    if (status && typeof status === 'string') {
+      issues = issues.filter(i => i.status === status);
+    }
+    if (project && typeof project === 'string') {
+      issues = issues.filter(i => i.project === project);
     }
 
     res.json({
       ok: true,
-      issues: result.stdoutJson || [],
-      count: Array.isArray(result.stdoutJson) ? result.stdoutJson.length : 0
+      issues,
+      count: issues.length
     });
   });
 
-  // GET /api/issues/pending - Issues with pending instructions
-  router.get('/issues/pending', async (req, res) => {
-    log('GET /issues/pending');
+  // GET /api/issues/unreviewed - Issues without any comments (not yet reviewed)
+  router.get('/issues/unreviewed', async (req, res) => {
+    log('GET /issues/unreviewed');
 
-    // Get all open and in_progress issues
-    const listResult = await runBdJson(['list', '--json']);
+    // Get all issues from all workspaces
+    const listResult = await fetchAllWorkspacesIssues();
 
-    if (listResult.code !== 0) {
+    if (!listResult.ok) {
       res.status(500).json({
         ok: false,
-        error: 'bd_error',
-        message: listResult.stderr || 'Failed to list issues'
+        error: 'fetch_error',
+        message: listResult.error?.message || 'Failed to list issues'
       });
       return;
     }
 
-    const issues = /** @type {any[]} */ (listResult.stdoutJson || []);
+    const issues = /** @type {any[]} */ (listResult.items || []);
+    const unreviewed = [];
+
+    // Check each issue for comments
+    for (const issue of issues) {
+      if (issue.status === 'closed') continue;
+
+      const commentsResult = await runBdJson(['comments', issue.id, '--json']);
+      const comments = commentsResult.code === 0 ? (commentsResult.stdoutJson || []) : [];
+
+      if (comments.length === 0) {
+        unreviewed.push({
+          ...issue,
+          comment_count: 0
+        });
+      }
+    }
+
+    res.json({
+      ok: true,
+      issues: unreviewed,
+      count: unreviewed.length
+    });
+  });
+
+  // GET /api/issues/pending - Issues with pending instructions from all workspaces
+  router.get('/issues/pending', async (req, res) => {
+    log('GET /issues/pending');
+
+    // Get all issues from all workspaces
+    const listResult = await fetchAllWorkspacesIssues();
+
+    if (!listResult.ok) {
+      res.status(500).json({
+        ok: false,
+        error: 'fetch_error',
+        message: listResult.error?.message || 'Failed to list issues'
+      });
+      return;
+    }
+
+    const issues = /** @type {any[]} */ (listResult.items || []);
     const pending = [];
 
     // Check each issue for pending instructions

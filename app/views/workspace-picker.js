@@ -14,7 +14,8 @@ import { debug } from '../utils/logging.js';
  */
 function getProjectName(workspace_path) {
   if (!workspace_path) return 'Unknown';
-  const parts = workspace_path.split('/').filter(Boolean);
+  // Handle both Unix (/) and Windows (\) path separators
+  const parts = workspace_path.split(/[/\\]/).filter(Boolean);
   return parts.length > 0 ? parts[parts.length - 1] : 'Unknown';
 }
 

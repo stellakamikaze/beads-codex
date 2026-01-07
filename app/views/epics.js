@@ -68,10 +68,32 @@ export function createEpicsView(
   }
 
   function template() {
+    const introHeader = html`
+      <div class="epics-intro">
+        <h2 class="epics-intro__title">Epics</h2>
+        <p class="epics-intro__description">
+          Gli <strong>Epic</strong> nel sistema Beads sono issue di alto livello che raggruppano
+          task correlati. Ogni Epic traccia il progresso complessivo mostrando quanti task figli
+          sono stati completati. Usa gli Epic per organizzare funzionalità complesse che richiedono
+          più step di implementazione.
+        </p>
+        <p class="epics-intro__tip">
+          <span class="tip-icon">💡</span>
+          <span>Clicca su un Epic per espandere e vedere i task figli. La barra di progresso mostra
+          il completamento basato sullo status dei task dipendenti.</span>
+        </p>
+      </div>
+    `;
     if (!groups.length) {
-      return html`<div class="panel__header muted">No epics found.</div>`;
+      return html`
+        ${introHeader}
+        <div class="panel__header muted" style="padding: 20px;">No epics found.</div>
+      `;
     }
-    return html`${groups.map((g) => groupTemplate(g))}`;
+    return html`
+      ${introHeader}
+      ${groups.map((g) => groupTemplate(g))}
+    `;
   }
 
   /**

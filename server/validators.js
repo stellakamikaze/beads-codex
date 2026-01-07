@@ -11,6 +11,7 @@
  */
 const SUBSCRIPTION_TYPES = new Set([
   'all-issues',
+  'all-workspaces-issues',
   'epics',
   'blocked-issues',
   'ready-issues',
@@ -81,7 +82,9 @@ export function validateSubscribeListPayload(payload) {
         message: 'params.id must be a non-empty string'
       };
     }
-    params = { id };
+    // Preserve workspace param if provided (for multi-workspace support)
+    const workspace = params?.workspace ? String(params.workspace) : undefined;
+    params = workspace ? { id, workspace } : { id };
   } else if (type === 'closed-issues') {
     if (params && 'since' in params) {
       const since = params.since;

@@ -106,8 +106,8 @@ export function createDetailView(
   let comment_text = '';
   /** @type {boolean} */
   let comment_pending = false;
-  /** @type {boolean} */
-  let comment_is_instruction = false;
+  // All comments are always instructions for Claude Code
+  const comment_is_instruction = true;
 
   /** @type {HTMLDialogElement | null} */
   let delete_dialog = null;
@@ -734,7 +734,6 @@ export function createDetailView(
         // Update comments in current issue
         /** @type {any} */ (current).comments = result;
         comment_text = '';
-        comment_is_instruction = false;
         doRender();
       }
     } catch (err) {
@@ -852,6 +851,7 @@ export function createDetailView(
             .value=${issue.description || ''}
             rows="8"
             style="width:100%"
+            placeholder="Descrivi l'obiettivo in linguaggio naturale. Es: 'Voglio che l'utente possa cercare prodotti per nome e filtrare per categoria'"
           ></textarea>
           <div class="editable-actions">
             <button @click=${onDescSave}>Save</button>
@@ -895,6 +895,10 @@ export function createDetailView(
             .value=${acceptance_text}
             rows="6"
             style="width:100%"
+            placeholder="Criteri per considerare il task completato. Es:
+- [ ] Il form di ricerca accetta input testuale
+- [ ] I risultati si aggiornano in tempo reale
+- [ ] Si possono combinare più filtri"
           ></textarea>
           <div class="editable-actions">
             <button @click=${onAcceptSave}>Save</button>
@@ -935,6 +939,10 @@ export function createDetailView(
             .value=${notes_text}
             rows="6"
             style="width:100%"
+            placeholder="Appunti tecnici, link a risorse, riferimenti. Es:
+- Usa la libreria Fuse.js per fuzzy search
+- Vedi esempio su https://example.com/docs
+- Attenzione: supportare anche ricerca in italiano"
           ></textarea>
           <div class="editable-actions">
             <button @click=${onNotesSave}>Save</button>
@@ -1013,6 +1021,15 @@ export function createDetailView(
             .value=${design_text}
             rows="6"
             style="width:100%"
+            placeholder="Decisioni architetturali, diagrammi ASCII, struttura componenti. Es:
+┌─────────────┐    ┌──────────────┐
+│ SearchInput │───▶│ FilterPanel  │
+└─────────────┘    └──────────────┘
+        │
+        ▼
+┌─────────────────┐
+│  ResultsList    │
+└─────────────────┘"
           ></textarea>
           <div class="editable-actions">
             <button @click=${onDesignSave}>Save</button>
@@ -1067,7 +1084,7 @@ export function createDetailView(
           )}
       <div class="comment-input">
         <textarea
-          placeholder="Add a comment... (Ctrl+Enter to submit)"
+          placeholder="Scrivi un'istruzione per Claude... (Ctrl+Enter per inviare)"
           rows="3"
           .value=${comment_text}
           @input=${onCommentInput}
@@ -1075,25 +1092,12 @@ export function createDetailView(
           ?disabled=${comment_pending}
         ></textarea>
         <div class="comment-actions">
-          <label class="instruction-checkbox">
-            <input
-              type="checkbox"
-              .checked=${comment_is_instruction}
-              @change=${
-                /** @param {Event} e */ (e) => {
-                  comment_is_instruction = /** @type {HTMLInputElement} */ (e.currentTarget).checked;
-                  doRender();
-                }
-              }
-              ?disabled=${comment_pending}
-            />
-            Istruzione per Claude
-          </label>
+          <span class="instruction-hint">Tutti i commenti sono istruzioni per Claude</span>
           <button
             @click=${onCommentSubmit}
             ?disabled=${comment_pending || !comment_text.trim()}
           >
-            ${comment_pending ? 'Adding...' : 'Add Comment'}
+            ${comment_pending ? 'Adding...' : 'Invia Istruzione'}
           </button>
         </div>
       </div>

@@ -6,6 +6,7 @@ import { createListSelectors } from './data/list-selectors.js';
 import { createDataLayer } from './data/providers.js';
 import { createSubscriptionIssueStores } from './data/subscription-issue-stores.js';
 import { createSubscriptionStore } from './data/subscriptions-store.js';
+import { initLocale, getLocale, setLocale, getAvailableLocales, onLocaleChange } from './i18n.js';
 import { createHashRouter, parseHash, parseView } from './router.js';
 import { createStore } from './state.js';
 import { createActivityIndicator } from './utils/activity-indicator.js';
@@ -265,7 +266,8 @@ export function bootstrap(root_element) {
      */
     function getProjectName(path) {
       if (!path) return 'Unknown';
-      const parts = path.split('/').filter(Boolean);
+      // Handle both Unix (/) and Windows (\) path separators
+      const parts = path.split(/[/\\]/).filter(Boolean);
       return parts.length > 0 ? parts[parts.length - 1] : 'Unknown';
     }
 
@@ -468,6 +470,11 @@ export function bootstrap(root_element) {
       // ignore missing header
     }
 
+    // Listen for custom event from list view to open new issue dialog
+    window.addEventListener('codex:new-issue', () => {
+      new_issue_dialog.open();
+    });
+
     // Local transport shim: for list-issues, serve from local listSelectors;
     // otherwise forward to ws transport for mutations/show.
     /**
@@ -629,7 +636,7 @@ export function bootstrap(root_element) {
 
     // Toggle route shells on view/detail change and persist
     const data = createDataLayer(transport);
-    const about_view = createAboutView(about_root);
+    const about_view = createAboutView(about_root, sub_issue_stores);
     const epics_view = createEpicsView(
       epics_root,
       data,
@@ -679,6 +686,7 @@ export function bootstrap(root_element) {
 
     /**
      * Compute subscription spec for Issues tab based on filters.
+     * By default, uses all-workspaces-issues to aggregate from ALL projects.
      *
      * @param {{ status?: string }} filters
      * @returns {{ type: string, params?: Record<string, string|number|boolean> }}
@@ -694,8 +702,8 @@ export function bootstrap(root_element) {
       if (st === 'closed') {
         return { type: 'closed-issues' };
       }
-      // "all" and "open" map to all-issues; client filters apply locally
-      return { type: 'all-issues' };
+      // "all" and "open" map to all-workspaces-issues to show ALL projects
+      return { type: 'all-workspaces-issues' };
     }
 
     /** @type {string|null} */
@@ -987,6 +995,10 @@ export function bootstrap(root_element) {
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   window.addEventListener('DOMContentLoaded', () => {
+    // Initialize i18n
+    initLocale();
+    document.documentElement.setAttribute('data-locale', getLocale());
+
     // Initialize theme from saved preference or OS preference
     try {
       const saved = window.localStorage.getItem('beads-ui.theme');
@@ -1019,6 +1031,21 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         const mode = themeSwitch.checked ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', mode);
         window.localStorage.setItem('beads-ui.theme', mode);
+      });
+    }
+
+    // Wire up language selector
+    const langSelect = /** @type {HTMLSelectElement|null} */ (
+      document.getElementById('lang-select')
+    );
+    if (langSelect) {
+      // Set current value
+      langSelect.value = getLocale();
+      langSelect.addEventListener('change', () => {
+        setLocale(langSelect.value);
+        document.documentElement.setAttribute('data-locale', langSelect.value);
+        // Reload page to apply translations
+        window.location.reload();
       });
     }
 

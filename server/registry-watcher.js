@@ -107,8 +107,41 @@ export function findWorkspaceEntry(root_dir) {
 }
 
 /**
- * Get all available workspaces from both the file-based registry and
- * dynamically registered in-memory workspaces.
+ * Scan a directory for subdirectories containing .beads/beads.db files.
+ *
+ * @param {string} parent_dir
+ * @returns {Array<{ path: string, database: string, pid: number, version: string }>}
+ */
+function discoverWorkspacesInDirectory(parent_dir) {
+  /** @type {Array<{ path: string, database: string, pid: number, version: string }>} */
+  const discovered = [];
+  try {
+    const entries = fs.readdirSync(parent_dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const workspace_path = path.join(parent_dir, entry.name);
+        const db_path = path.join(workspace_path, '.beads', 'beads.db');
+        if (fs.existsSync(db_path)) {
+          discovered.push({
+            path: workspace_path,
+            database: db_path,
+            pid: 0, // Unknown - not a registered daemon
+            version: 'discovered'
+          });
+        }
+      }
+    }
+  } catch {
+    // Ignore scan errors
+  }
+  return discovered;
+}
+
+/**
+ * Get all available workspaces from:
+ * 1. File-based registry (running daemons)
+ * 2. Dynamically registered in-memory workspaces
+ * 3. Auto-discovered workspaces in sibling directories
  *
  * @returns {Array<{ path: string, database: string, pid: number, version: string }>}
  */
@@ -121,13 +154,48 @@ export function getAvailableWorkspaces() {
     version: entry.version
   }));
 
-  // Merge in-memory workspaces, avoiding duplicates by path
+  // Auto-discover workspaces in parent directories of registered workspaces
+  const parentDirs = new Set();
+  for (const ws of fileWorkspaces) {
+    parentDirs.add(path.dirname(ws.path));
+  }
+  // Also check common dev directories
+  const home = os.homedir();
+  const commonPaths = [
+    path.join(home, 'Documents', 'ClaudeCode'),
+    path.join(home, 'projects'),
+    path.join(home, 'code'),
+    path.join(home, 'dev')
+  ];
+  for (const p of commonPaths) {
+    if (fs.existsSync(p)) {
+      parentDirs.add(p);
+    }
+  }
+
+  /** @type {Array<{ path: string, database: string, pid: number, version: string }>} */
+  const discoveredWorkspaces = [];
+  for (const parent of parentDirs) {
+    const found = discoverWorkspacesInDirectory(parent);
+    discoveredWorkspaces.push(...found);
+  }
+
+  // Merge all sources, avoiding duplicates by path
   const seen = new Set(fileWorkspaces.map((w) => path.resolve(w.path)));
   const inMemory = getInMemoryWorkspaces().filter(
     (w) => !seen.has(path.resolve(w.path))
   );
+  for (const w of inMemory) {
+    seen.add(path.resolve(w.path));
+  }
+  const discovered = discoveredWorkspaces.filter(
+    (w) => !seen.has(path.resolve(w.path))
+  );
 
-  return [...fileWorkspaces, ...inMemory];
+  log('getAvailableWorkspaces: %d from registry, %d in-memory, %d discovered',
+    fileWorkspaces.length, inMemory.length, discovered.length);
+
+  return [...fileWorkspaces, ...inMemory, ...discovered];
 }
 
 /**

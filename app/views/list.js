@@ -7,6 +7,17 @@ import { debug } from '../utils/logging.js';
 import { statusLabel } from '../utils/status.js';
 import { createIssueRowRenderer } from './issue-row.js';
 
+/**
+ * Extract project name from a path (handles both Unix and Windows paths).
+ * @param {string} path
+ * @returns {string}
+ */
+function getProjectName(path) {
+  if (!path) return '(no project)';
+  const parts = path.split(/[/\\]/).filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : '(no project)';
+}
+
 // List view implementation; requires a transport send function.
 
 /**
@@ -54,12 +65,19 @@ export function createListView(
   let issues_cache = [];
   /** @type {string[]} */
   let type_filters = [];
+  /** @type {string[]} */
+  let project_filters = [];
   /** @type {string | null} */
   let selected_id = store ? store.getState().selected_id : null;
   /** @type {null | (() => void)} */
   let unsubscribe = null;
   let status_dropdown_open = false;
   let type_dropdown_open = false;
+  let project_dropdown_open = false;
+  /** @type {boolean} */
+  let only_unreviewed = false;
+  /** @type {Set<string>} */
+  let unreviewed_ids = new Set();
 
   /**
    * Normalize legacy string filter to array format.
@@ -160,6 +178,7 @@ export function createListView(
     e.stopPropagation();
     status_dropdown_open = !status_dropdown_open;
     type_dropdown_open = false;
+    project_dropdown_open = false;
     doRender();
   };
 
@@ -172,6 +191,63 @@ export function createListView(
     e.stopPropagation();
     type_dropdown_open = !type_dropdown_open;
     status_dropdown_open = false;
+    project_dropdown_open = false;
+    doRender();
+  };
+
+  /**
+   * Toggle project dropdown open/closed.
+   *
+   * @param {Event} e
+   */
+  const toggleProjectDropdown = (e) => {
+    e.stopPropagation();
+    project_dropdown_open = !project_dropdown_open;
+    status_dropdown_open = false;
+    type_dropdown_open = false;
+    doRender();
+  };
+
+  /**
+   * Toggle a project filter chip.
+   *
+   * @param {string} project
+   */
+  const toggleProjectFilter = (project) => {
+    if (project_filters.includes(project)) {
+      project_filters = project_filters.filter((p) => p !== project);
+    } else {
+      project_filters = [...project_filters, project];
+    }
+    log('project toggle %s -> %o', project, project_filters);
+    if (store) {
+      store.setState({ filters: { project: project_filters } });
+    }
+    doRender();
+  };
+
+  /**
+   * Toggle the "only unreviewed" filter.
+   */
+  const toggleUnreviewedFilter = async () => {
+    only_unreviewed = !only_unreviewed;
+    log('unreviewed toggle -> %s', only_unreviewed);
+    if (only_unreviewed) {
+      // Fetch unreviewed issues from API
+      try {
+        const res = await fetch('/api/issues/unreviewed');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ok && Array.isArray(data.issues)) {
+            unreviewed_ids = new Set(data.issues.map((/** @type {any} */ i) => i.id));
+          }
+        }
+      } catch {
+        unreviewed_ids = new Set();
+      }
+    } else {
+      unreviewed_ids = new Set();
+    }
     doRender();
   };
 
@@ -205,6 +281,28 @@ export function createListView(
   /**
    * Build lit-html template for the list view.
    */
+  /**
+   * Close an issue by setting status to 'closed'.
+   *
+   * @param {string} id
+   */
+  const closeIssue = async (id) => {
+    try {
+      await sendFn('update-status', { id, status: 'closed' });
+      log('closed issue %s', id);
+    } catch (err) {
+      log('failed to close issue %s: %o', id, err);
+    }
+  };
+
+  /**
+   * Open the new issue dialog.
+   */
+  const openNewIssueDialog = () => {
+    // Dispatch custom event to trigger new issue dialog in main.js
+    window.dispatchEvent(new CustomEvent('codex:new-issue'));
+  };
+
   function template() {
     let filtered = issues_cache;
     if (status_filters.length > 0 && !status_filters.includes('ready')) {
@@ -225,19 +323,32 @@ export function createListView(
         type_filters.includes(String(it.issue_type || ''))
       );
     }
+    // Apply project filter
+    if (project_filters.length > 0) {
+      filtered = filtered.filter((it) =>
+        project_filters.includes(String(it.project || ''))
+      );
+    }
+    // Apply unreviewed filter
+    if (only_unreviewed && unreviewed_ids.size > 0) {
+      filtered = filtered.filter((it) => unreviewed_ids.has(it.id));
+    }
     // Sorting: closed list is a special case → sort by closed_at desc only
     if (status_filters.length === 1 && status_filters[0] === 'closed') {
       filtered = filtered.slice().sort(cmpClosedDesc);
     }
 
-    // Group issues by project
+    // Get unique projects from cache for dropdown (use raw paths for values, display names for labels)
+    const uniqueProjects = [...new Set(issues_cache.map((it) => it.project || ''))].filter(Boolean).sort();
+
+    // Group issues by project (use display name as key for consistent grouping)
     /** @type {Map<string, Issue[]>} */
     const byProject = new Map();
     for (const it of filtered) {
-      const proj = it.project || '(no project)';
-      const arr = byProject.get(proj) || [];
+      const projName = getProjectName(it.project || '');
+      const arr = byProject.get(projName) || [];
       arr.push(it);
-      byProject.set(proj, arr);
+      byProject.set(projName, arr);
     }
     // Sort project names alphabetically, but put "(no project)" last
     const projectNames = Array.from(byProject.keys()).sort((a, b) => {
@@ -247,56 +358,87 @@ export function createListView(
     });
 
     return html`
-      <div class="panel__header">
-        <div class="filter-dropdown ${status_dropdown_open ? 'is-open' : ''}">
-          <button
-            class="filter-dropdown__trigger"
-            @click=${toggleStatusDropdown}
-          >
-            ${getDropdownDisplayText(status_filters, 'Status', statusLabel)}
-            <span class="filter-dropdown__arrow">▾</span>
-          </button>
-          <div class="filter-dropdown__menu">
-            ${['ready', 'open', 'in_progress', 'closed'].map(
-              (s) => html`
-                <label class="filter-dropdown__option">
-                  <input
-                    type="checkbox"
-                    .checked=${status_filters.includes(s)}
-                    @change=${() => toggleStatusFilter(s)}
-                  />
-                  ${s === 'ready' ? 'Ready' : statusLabel(s)}
-                </label>
-              `
-            )}
+      <div class="panel__header-wrapper">
+        <p class="panel__description">Filtri avanzati per selezionare e visualizzare le issue di Codex</p>
+        <div class="panel__header">
+          <div class="filter-dropdown ${status_dropdown_open ? 'is-open' : ''}">
+            <button
+              class="filter-dropdown__trigger"
+              @click=${toggleStatusDropdown}
+            >
+              ${getDropdownDisplayText(status_filters, 'Status', statusLabel)}
+              <span class="filter-dropdown__arrow">▾</span>
+            </button>
+            <div class="filter-dropdown__menu">
+              ${['ready', 'open', 'in_progress', 'closed'].map(
+                (s) => html`
+                  <label class="filter-dropdown__option">
+                    <input
+                      type="checkbox"
+                      .checked=${status_filters.includes(s)}
+                      @change=${() => toggleStatusFilter(s)}
+                    />
+                    ${s === 'ready' ? 'Ready' : statusLabel(s)}
+                  </label>
+                `
+              )}
+            </div>
           </div>
-        </div>
-        <div class="filter-dropdown ${type_dropdown_open ? 'is-open' : ''}">
-          <button class="filter-dropdown__trigger" @click=${toggleTypeDropdown}>
-            ${getDropdownDisplayText(type_filters, 'Types', typeLabel)}
-            <span class="filter-dropdown__arrow">▾</span>
-          </button>
-          <div class="filter-dropdown__menu">
-            ${ISSUE_TYPES.map(
-              (t) => html`
-                <label class="filter-dropdown__option">
-                  <input
-                    type="checkbox"
-                    .checked=${type_filters.includes(t)}
-                    @change=${() => toggleTypeFilter(t)}
-                  />
-                  ${typeLabel(t)}
-                </label>
-              `
-            )}
+          <div class="filter-dropdown ${type_dropdown_open ? 'is-open' : ''}">
+            <button class="filter-dropdown__trigger" @click=${toggleTypeDropdown}>
+              ${getDropdownDisplayText(type_filters, 'Type', typeLabel)}
+              <span class="filter-dropdown__arrow">▾</span>
+            </button>
+            <div class="filter-dropdown__menu">
+              ${ISSUE_TYPES.map(
+                (t) => html`
+                  <label class="filter-dropdown__option">
+                    <input
+                      type="checkbox"
+                      .checked=${type_filters.includes(t)}
+                      @change=${() => toggleTypeFilter(t)}
+                    />
+                    ${typeLabel(t)}
+                  </label>
+                `
+              )}
+            </div>
           </div>
+          <div class="filter-dropdown ${project_dropdown_open ? 'is-open' : ''}">
+            <button class="filter-dropdown__trigger" @click=${toggleProjectDropdown}>
+              ${getDropdownDisplayText(project_filters, 'Project', getProjectName)}
+              <span class="filter-dropdown__arrow">▾</span>
+            </button>
+            <div class="filter-dropdown__menu">
+              ${uniqueProjects.map(
+                (p) => html`
+                  <label class="filter-dropdown__option">
+                    <input
+                      type="checkbox"
+                      .checked=${project_filters.includes(p)}
+                      @change=${() => toggleProjectFilter(p)}
+                    />
+                    ${getProjectName(p)}
+                  </label>
+                `
+              )}
+            </div>
+          </div>
+          <input
+            type="search"
+            placeholder="Search…"
+            @input=${onSearchInput}
+            .value=${search_text}
+          />
+          <label class="filter-checkbox">
+            <input
+              type="checkbox"
+              .checked=${only_unreviewed}
+              @change=${toggleUnreviewedFilter}
+            />
+            <span>Solo non revisionate</span>
+          </label>
         </div>
-        <input
-          type="search"
-          placeholder="Search…"
-          @input=${onSearchInput}
-          .value=${search_text}
-        />
       </div>
       <div class="panel__body" id="list-root">
         ${filtered.length === 0
@@ -311,13 +453,14 @@ export function createListView(
                     class="table"
                     role="grid"
                     aria-rowcount=${String(byProject.get(projectName)?.length || 0)}
-                    aria-colcount="4"
+                    aria-colcount="5"
                   >
                     <colgroup>
                       <col style="width: 100px" />
                       <col style="width: 100px" />
                       <col />
                       <col style="width: 120px" />
+                      <col style="width: 80px" />
                     </colgroup>
                     <thead>
                       <tr role="row">
@@ -325,12 +468,35 @@ export function createListView(
                         <th role="columnheader">Type</th>
                         <th role="columnheader">Title</th>
                         <th role="columnheader">Status</th>
+                        <th role="columnheader">Actions</th>
                       </tr>
                     </thead>
                     <tbody role="rowgroup">
-                      ${(byProject.get(projectName) || []).map((it) =>
-                        row_renderer(it)
-                      )}
+                      ${(byProject.get(projectName) || []).map((it) => html`
+                        <tr
+                          class="issue-row ${it.id === selected_id ? 'issue-row--selected' : ''}"
+                          data-issue-id=${it.id}
+                          @click=${() => {
+                            const nav = navigateFn || ((h) => (window.location.hash = h));
+                            const view = store ? store.getState().view : 'issues';
+                            nav(issueHashFor(view, it.id));
+                          }}
+                        >
+                          <td class="issue-id">${it.id}</td>
+                          <td>${typeLabel(it.issue_type || 'task')}</td>
+                          <td class="issue-title">${it.title || '(untitled)'}</td>
+                          <td><span class="status-badge status-badge--${it.status || 'open'}">${statusLabel(it.status || 'open')}</span></td>
+                          <td class="actions-cell">
+                            ${it.status !== 'closed' ? html`
+                              <button
+                                class="btn btn--icon btn--success"
+                                title="Chiudi issue"
+                                @click=${(e) => { e.stopPropagation(); closeIssue(it.id); }}
+                              >✓</button>
+                            ` : ''}
+                          </td>
+                        </tr>
+                      `)}
                     </tbody>
                   </table>
                 </div>
@@ -522,9 +688,10 @@ export function createListView(
   const clickOutsideHandler = (e) => {
     const target = /** @type {HTMLElement|null} */ (e.target);
     if (target && !target.closest('.filter-dropdown')) {
-      if (status_dropdown_open || type_dropdown_open) {
+      if (status_dropdown_open || type_dropdown_open || project_dropdown_open) {
         status_dropdown_open = false;
         type_dropdown_open = false;
+        project_dropdown_open = false;
         doRender();
       }
     }

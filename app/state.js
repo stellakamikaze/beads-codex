@@ -8,7 +8,7 @@ import { debug } from './utils/logging.js';
  */
 
 /**
- * @typedef {{ status: StatusFilter, search: string, type: string }} Filters
+ * @typedef {{ status: StatusFilter, search: string, type: string, project: string[] }} Filters
  */
 
 /**
@@ -57,7 +57,8 @@ export function createStore(initial = {}) {
       status: initial.filters?.status ?? 'all',
       search: initial.filters?.search ?? '',
       type:
-        typeof initial.filters?.type === 'string' ? initial.filters?.type : ''
+        typeof initial.filters?.type === 'string' ? initial.filters?.type : '',
+      project: Array.isArray(initial.filters?.project) ? initial.filters.project : []
     },
     board: {
       closed_filter:
@@ -117,12 +118,14 @@ export function createStore(initial = {}) {
       const workspace_changed =
         next.workspace.current?.path !== state.workspace.current?.path ||
         next.workspace.available.length !== state.workspace.available.length;
+      const project_changed = JSON.stringify(next.filters.project) !== JSON.stringify(state.filters.project);
       if (
         next.selected_id === state.selected_id &&
         next.view === state.view &&
         next.filters.status === state.filters.status &&
         next.filters.search === state.filters.search &&
         next.filters.type === state.filters.type &&
+        !project_changed &&
         next.board.closed_filter === state.board.closed_filter &&
         !workspace_changed
       ) {

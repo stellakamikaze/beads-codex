@@ -1,9 +1,28 @@
 import path from 'node:path';
 import { runBdJson } from './bd.js';
 import { debug } from './logging.js';
+import { getAvailableWorkspaces } from './registry-watcher.js';
 import { getBeadsStore } from './sync-api.js';
 
 const log = debug('list-adapters');
+
+/**
+ * Get comment count for an issue.
+ * @param {string} issueId
+ * @param {{ cwd?: string }} [options]
+ * @returns {Promise<number>}
+ */
+async function getCommentCount(issueId, options = {}) {
+  try {
+    const res = await runBdJson(['comments', issueId, '--json'], { cwd: options.cwd });
+    if (res && res.code === 0 && Array.isArray(res.stdoutJson)) {
+      return res.stdoutJson.length;
+    }
+  } catch {
+    // ignore
+  }
+  return 0;
+}
 
 /**
  * Derive a project name from a workspace path.
@@ -30,6 +49,7 @@ function fetchFromSyncStore(spec) {
   const t = String(spec.type);
   switch (t) {
     case 'all-issues':
+    case 'all-workspaces-issues':
       // Return all items
       break;
     case 'in-progress-issues':
@@ -85,7 +105,8 @@ function fetchFromSyncStore(spec) {
 export function mapSubscriptionToBdArgs(spec) {
   const t = String(spec.type);
   switch (t) {
-    case 'all-issues': {
+    case 'all-issues':
+    case 'all-workspaces-issues': {
       return ['list', '--json'];
     }
     case 'epics': {
@@ -162,6 +183,42 @@ export function normalizeIssueList(value, options = {}) {
 }
 
 /**
+ * Fetch issues from ALL registered workspaces and aggregate them.
+ * Each issue gets a `project` field derived from its workspace path.
+ *
+ * @returns {Promise<FetchListResultSuccess | FetchListResultFailure>}
+ */
+export async function fetchAllWorkspacesIssues() {
+  const workspaces = getAvailableWorkspaces();
+  log('fetchAllWorkspacesIssues: found %d workspaces', workspaces.length);
+
+  if (workspaces.length === 0) {
+    return { ok: true, items: [] };
+  }
+
+  /** @type {Array<{ id: string, updated_at: number, closed_at: number | null, project: string } & Record<string, unknown>>} */
+  const allIssues = [];
+
+  for (const ws of workspaces) {
+    try {
+      const res = await runBdJson(['list', '--json'], { cwd: ws.path });
+      if (res && res.code === 0 && 'stdoutJson' in res) {
+        const raw = Array.isArray(res.stdoutJson) ? res.stdoutJson : [];
+        const project = deriveProjectName(ws.path);
+        const items = normalizeIssueList(raw, { project });
+        allIssues.push(...items);
+        log('fetchAllWorkspacesIssues: got %d issues from %s', items.length, project);
+      }
+    } catch (err) {
+      log('fetchAllWorkspacesIssues: error fetching from %s: %o', ws.path, err);
+      // Continue with other workspaces
+    }
+  }
+
+  return { ok: true, items: allIssues };
+}
+
+/**
  * @typedef {Object} FetchListResultSuccess
  * @property {true} ok
  * @property {Array<{ id: string, updated_at: number, closed_at: number | null } & Record<string, unknown>>} items
@@ -182,6 +239,11 @@ export function normalizeIssueList(value, options = {}) {
  * @returns {Promise<FetchListResultSuccess | FetchListResultFailure>}
  */
 export async function fetchListForSubscription(spec, options = {}) {
+  // Special case: aggregate from ALL workspaces
+  if (String(spec.type) === 'all-workspaces-issues') {
+    return fetchAllWorkspacesIssues();
+  }
+
   /** @type {string[]} */
   let args;
   try {
