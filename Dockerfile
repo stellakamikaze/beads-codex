@@ -1,13 +1,13 @@
 # Dockerfile for beads-codex
-# Multi-stage build for smaller image
+# Multi-stage build
 
 # Stage 1: Build
-FROM node:22-alpine AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
 # Install build dependencies
-RUN apk add --no-cache git
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
 COPY package*.json ./
@@ -22,12 +22,12 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Production
-FROM node:22-alpine
+FROM node:22-slim
 
 WORKDIR /app
 
-# Install runtime dependencies
-RUN apk add --no-cache git
+# Install runtime dependencies (git for bd, wget for healthcheck)
+RUN apt-get update && apt-get install -y git wget && rm -rf /var/lib/apt/lists/*
 
 # Install beads CLI globally
 RUN npm install -g @beads/bd
